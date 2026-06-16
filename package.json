@@ -1,0 +1,50 @@
+{
+  "name": "vpn",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "apps/*",
+    "libs/*"
+  ],
+  "scripts": {
+    "dev:up": "docker compose -f docker-compose.dev.yml up -d",
+    "dev:down": "docker compose -f docker-compose.dev.yml down",
+    "dev:logs": "docker compose -f docker-compose.dev.yml logs -f",
+    "dev:backend": "bun run --cwd apps/backend dev",
+    "dev:customer": "bun run --cwd apps/customer-web dev",
+    "dev:admin": "bun run --cwd apps/admin-web dev",
+    "ci:check:affected": "bun scripts/ci/check-affected.mjs --check",
+    "ci:fix:affected": "bun scripts/ci/check-affected.mjs --fix",
+    "ci:check:lint": "bunx eslint . --max-warnings 0",
+    "ci:fix:lint": "bunx eslint . --fix",
+    "ci:check:types": "bun run --filter '*' typecheck",
+    "ci:check:tests": "bun run --filter '*' test",
+    "ci:check:backend-dockerfile": "bun scripts/ci/check-backend-docker-workspace.mjs",
+    "ci:e2e": "bun scripts/ci/run-e2e-stack.mjs",
+    "ci:stack:up": "bun scripts/ci/run-e2e-stack.mjs --up",
+    "ci:stack:down": "bun scripts/ci/run-e2e-stack.mjs --down",
+    "build:e2e": "bun run --cwd apps/customer-web build && bun run --cwd apps/admin-web build",
+    "test:e2e": "node scripts/ci/run-local-e2e.mjs",
+    "lint": "bun run ci:check:lint",
+    "typecheck": "bun run ci:check:types",
+    "test": "bun run ci:check:tests",
+    "ci:check": "bun run ci:check:lint && bun run ci:check:types && bun run ci:check:tests",
+    "ci:fix": "bun run ci:fix:lint"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "@playwright/test": "latest",
+    "@types/bun": "latest",
+    "eslint": "latest",
+    "eslint-plugin-vue": "latest",
+    "typescript": "latest",
+    "typescript-eslint": "latest",
+    "vue-tsc": "latest"
+  },
+  "trustedDependencies": [
+    "@parcel/watcher",
+    "esbuild",
+    "vue-demi"
+  ]
+}

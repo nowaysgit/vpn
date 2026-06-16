@@ -1,0 +1,30 @@
+{
+  "name": "@vpn/admin-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --host 0.0.0.0 --port 3002",
+    "build": "nuxt build",
+    "preview": "nuxt preview --host 0.0.0.0 --port 3002",
+    "serve:e2e": "bun run build && bun .output/server/index.mjs",
+    "serve:built": "bun .output/server/index.mjs",
+    "lint": "eslint app nuxt.config.ts test",
+    "lint:fix": "eslint app nuxt.config.ts test --fix",
+    "typecheck": "nuxt typecheck",
+    "test": "bun test",
+    "ci:check": "bun run lint && bun run typecheck && bun run test",
+    "ci:fix": "bun run lint:fix"
+  },
+  "dependencies": {
+    "@elysiajs/eden": "latest",
+    "@vpn/api-contract": "workspace:*",
+    "lucide-vue-next": "latest",
+    "nuxt": "latest",
+    "vue": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest",
+    "vue-tsc": "latest"
+  }
+}

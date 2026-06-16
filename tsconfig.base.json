@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "rootDir": ".",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "ignoreDeprecations": "6.0",
+    "types": ["bun"],
+    "baseUrl": ".",
+    "paths": {
+      "@vpn/api-contract": ["libs/api-contract/src/index.ts"],
+      "@vpn/provider-contract": ["libs/provider-contract/src/index.ts"]
+    }
+  }
+}

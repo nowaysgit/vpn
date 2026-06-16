@@ -1,0 +1,23 @@
+name: vpn
+
+services:
+  provisioning-worker:
+    build:
+      context: ../..
+      dockerfile: apps/provisioning-worker/Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-vpn}-provisioning-worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      PG_BOSS_SCHEMA: ${PG_BOSS_SCHEMA:-pgboss}
+      MARZBAN_BASE_URL: ${MARZBAN_BASE_URL}
+      MARZBAN_USERNAME: ${MARZBAN_USERNAME}
+      MARZBAN_PASSWORD: ${MARZBAN_PASSWORD}
+      TELEGRAM_ALERT_CHAT_ID: ${TELEGRAM_ALERT_CHAT_ID}
+    networks:
+      - internal
+
+networks:
+  internal:
+    name: ${COMPOSE_PROJECT_NAME:-vpn}-internal

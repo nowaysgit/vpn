@@ -1,0 +1,19 @@
+{
+  "name": "@vpn/api-contract",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "ci:check": "bun run lint && bun run typecheck && bun run test",
+    "ci:fix": "bun run lint:fix"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}

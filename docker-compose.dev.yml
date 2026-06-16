@@ -1,0 +1,82 @@
+name: vpn-dev
+
+include:
+  - path: apps/backend/docker-compose.yml
+    project_directory: .
+  - path: apps/customer-web/docker-compose.yml
+    project_directory: .
+  - path: apps/admin-web/docker-compose.yml
+    project_directory: .
+  - path: apps/telegram-bot/docker-compose.yml
+    project_directory: .
+  - path: apps/provisioning-worker/docker-compose.yml
+    project_directory: .
+
+services:
+  postgres:
+    container_name: ${COMPOSE_PROJECT_NAME:-vpn-dev}-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vpn_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+
+  api:
+    container_name: ${COMPOSE_PROJECT_NAME:-vpn-dev}-api
+    command: ["sh", "-c", "bun run migrate && bun --watch src/index.ts"]
+    working_dir: /app/apps/backend
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/vpn_dev}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-secret}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      API_DOMAIN: ${API_DOMAIN:-dev.api.vpn.localhost}
+    ports:
+      - "3001:3001"
+    volumes:
+      - .:/app
+
+  customer-web:
+    container_name: ${COMPOSE_PROJECT_NAME:-vpn-dev}-customer-web
+    command: ["bun", "run", "dev"]
+    working_dir: /app/apps/customer-web
+    environment:
+      NODE_ENV: development
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:3001}
+      CUSTOMER_DOMAIN: ${CUSTOMER_DOMAIN:-dev.vpn.localhost}
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+
+  admin-web:
+    container_name: ${COMPOSE_PROJECT_NAME:-vpn-dev}-admin-web
+    command: ["bun", "run", "dev"]
+    working_dir: /app/apps/admin-web
+    environment:
+      NODE_ENV: development
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:3001}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-dev.admin.vpn.localhost}
+    ports:
+      - "3002:3002"
+    volumes:
+      - .:/app
+
+  telegram-bot:
+    container_name: ${COMPOSE_PROJECT_NAME:-vpn-dev}-telegram-bot
+    command: ["bun", "--watch", "src/index.ts"]
+    working_dir: /app/apps/telegram-bot
+    volumes:
+      - .:/app
+
+  provisioning-worker:
+    container_name: ${COMPOSE_PROJECT_NAME:-vpn-dev}-provisioning-worker
+    command: ["bun", "--watch", "src/index.ts"]
+    working_dir: /app/apps/provisioning-worker
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data:

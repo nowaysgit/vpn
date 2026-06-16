@@ -1,0 +1,22 @@
+name: vpn
+
+services:
+  telegram-bot:
+    build:
+      context: ../..
+      dockerfile: apps/telegram-bot/Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-vpn}-telegram-bot
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_BASE_URL: ${API_BASE_URL}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_BOT_SECRET: ${TELEGRAM_BOT_SECRET}
+      TELEGRAM_ALERT_CHAT_ID: ${TELEGRAM_ALERT_CHAT_ID}
+    networks:
+      - internal
+
+networks:
+  internal:
+    name: ${COMPOSE_PROJECT_NAME:-vpn}-internal

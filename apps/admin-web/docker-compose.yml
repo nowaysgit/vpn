@@ -1,0 +1,37 @@
+name: vpn
+
+services:
+  admin-web:
+    build:
+      context: ../..
+      dockerfile: apps/admin-web/Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-vpn}-admin-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      HOST: 0.0.0.0
+      API_BASE_URL: ${API_BASE_URL}
+    networks:
+      - internal
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${EDGE_NETWORK:-vds-edge}
+      - traefik.http.services.vpn-admin-web.loadbalancer.server.port=3002
+      - traefik.http.middlewares.vpn-https-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.vpn-admin-web-http.rule=Host(`${ADMIN_DOMAIN}`)
+      - traefik.http.routers.vpn-admin-web-http.entrypoints=web
+      - traefik.http.routers.vpn-admin-web-http.middlewares=vpn-https-redirect
+      - traefik.http.routers.vpn-admin-web.rule=Host(`${ADMIN_DOMAIN}`)
+      - traefik.http.routers.vpn-admin-web.entrypoints=websecure
+      - traefik.http.routers.vpn-admin-web.tls=true
+      - traefik.http.routers.vpn-admin-web.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.routers.vpn-admin-web.service=vpn-admin-web
+
+networks:
+  internal:
+    name: ${COMPOSE_PROJECT_NAME:-vpn}-internal
+  edge:
+    name: ${EDGE_NETWORK:-vds-edge}
+    external: true

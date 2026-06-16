@@ -1,0 +1,32 @@
+{
+  "name": "@vpn/backend",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "migrate": "bun src/db/migrate.ts",
+    "lint": "eslint src test drizzle.config.ts",
+    "lint:fix": "eslint src test drizzle.config.ts --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "ci:check": "bun run lint && bun run typecheck && bun run test",
+    "ci:fix": "bun run lint:fix"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "latest",
+    "@vpn/api-contract": "workspace:*",
+    "@vpn/provider-contract": "workspace:*",
+    "drizzle-orm": "latest",
+    "elysia": "latest",
+    "pg": "latest",
+    "pg-boss": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/pg": "latest",
+    "drizzle-kit": "latest",
+    "typescript": "latest"
+  }
+}
