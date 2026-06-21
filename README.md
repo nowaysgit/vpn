@@ -100,6 +100,11 @@ bun run check:production-readiness
 
 На этой Windows-сессии `bun run test:e2e` стабильно ломает Playwright browser launch из-за Bun script ancestry. Сам Playwright и тесты проходят через прямой Node runner: `node scripts/ci/run-local-e2e.mjs`.
 
+## Graphify
+
+Локальная установка Graphify, первая генерация графа и команды для агента на другой машине описаны в [docs/graphify-local.md](docs/graphify-local.md).
+`graphify-out/` и локальные `.codex/`-хуки являются generated/machine-local артефактами и не должны коммититься.
+
 ## Покрытие
 
 - Backend API edge cases: email verification, payment idempotency, 4-device limit, explicit replacement, credential revoke on device delete, user-level traffic limit, 1-day grace period, external fallback.

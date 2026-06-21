@@ -8,6 +8,7 @@ bun.lockb
 .nuxt/
 .output/
 .agents/
+.codex/
 dist/
 coverage/
 playwright-report/
