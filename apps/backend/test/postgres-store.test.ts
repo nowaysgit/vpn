@@ -23,10 +23,14 @@ describe('postgres store integration', () => {
     const store = await createPostgresStore({ pool })
     const { app } = await createApp({ store })
 
-    const registered = await json<{ verificationToken: string }>(
+    const registered = await json<{ userId: string; verificationEmailSent: boolean }>(
       app.handle(request('POST', '/auth/register', { email: 'pg@example.com', name: 'PG User', password: 'password123' }))
     )
-    await json(app.handle(request('POST', '/auth/verify-email', { token: registered.verificationToken })))
+    const verificationToken = store.emailTokens.find((item) => item.userId === registered.userId)?.token
+    expect(registered.verificationEmailSent).toBe(true)
+    if (!verificationToken) throw new Error('Verification token was not created')
+    expect(verificationToken).toStartWith('verify_')
+    await json(app.handle(request('POST', '/auth/verify-email', { token: verificationToken })))
 
     const persisted = await pool.query<{ email: string; email_verified: boolean }>(
       'select email, email_verified from users where email = $1',
@@ -46,8 +50,10 @@ async function resetDatabase(pool: Pool): Promise<void> {
 }
 
 async function runInitialMigration(pool: Pool): Promise<void> {
-  const sql = await Bun.file(new URL('../drizzle/0000_initial.sql', import.meta.url)).text()
-  await pool.query(sql)
+  for (const file of ['0000_initial.sql', '0001_tbank_payment_provider.sql']) {
+    const sql = await Bun.file(new URL(`../drizzle/${file}`, import.meta.url)).text()
+    await pool.query(sql)
+  }
 }
 
 function request(method: string, path: string, body?: unknown, token?: string): Request {

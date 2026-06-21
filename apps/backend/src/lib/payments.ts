@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import type { PaymentInvoice, PaymentProvider, PaymentStatus } from '@vpn/api-contract'
 import type { Payment } from './domain'
 import { createId } from './id'
@@ -8,6 +8,7 @@ export type CreateInvoiceInput = {
   planId: string
   amountRub: number
   idempotencyKey: string
+  email?: string
 }
 
 export type ParsedPaymentWebhook = {
@@ -27,6 +28,42 @@ export interface PaymentProviderAdapter {
   readonly id: PaymentProvider
   createInvoice(input: CreateInvoiceInput): Promise<PaymentInvoice>
   parseWebhook(payload: unknown, signature?: string): ParsedPaymentWebhook
+}
+
+export class TBankPaymentAdapter implements PaymentProviderAdapter {
+  readonly id = 'tbank' as const
+
+  async createInvoice(input: CreateInvoiceInput): Promise<PaymentInvoice> {
+    const config = tBankConfig()
+    if (config.terminalKey && config.password) return createTBankInvoice(config, input)
+    assertSandboxAllowed(this.id)
+
+    const id = createId('pay')
+
+    return {
+      id,
+      provider: this.id,
+      status: 'created',
+      amountRub: input.amountRub,
+      checkoutUrl: sandboxCheckoutUrl(this.id, id, input.idempotencyKey)
+    }
+  }
+
+  parseWebhook(payload: unknown): ParsedPaymentWebhook {
+    verifyTBankNotificationToken(payload, tBankConfig().password)
+    const record = recordPayload(payload)
+    const paymentId = stringLikeField(record, 'PaymentId')
+    const status = tBankStatus(record.Status)
+
+    if (!paymentId) throw new Error('PaymentId is required')
+
+    return {
+      providerPaymentId: paymentId,
+      providerEventId: [paymentId, String(record.Status ?? ''), String(record.Amount ?? ''), String(record.Success ?? '')].join(':'),
+      status,
+      rawPayload: payload
+    }
+  }
 }
 
 export class PlategaPaymentAdapter implements PaymentProviderAdapter {
@@ -50,38 +87,6 @@ export class PlategaPaymentAdapter implements PaymentProviderAdapter {
 
   parseWebhook(payload: unknown, signature?: string): ParsedPaymentWebhook {
     verifyWebhookSignature(payload, signature, providerConfig('PLATEGA').secret)
-    const body = paymentPayload(payload)
-
-    return {
-      providerPaymentId: body.paymentId,
-      providerEventId: body.eventId,
-      status: body.status,
-      rawPayload: payload
-    }
-  }
-}
-
-export class RollyPayPaymentAdapter implements PaymentProviderAdapter {
-  readonly id = 'rollypay' as const
-
-  async createInvoice(input: CreateInvoiceInput): Promise<PaymentInvoice> {
-    const config = providerConfig('ROLLYPAY')
-    if (config.apiBaseUrl) return createRemoteInvoice(this.id, config, input)
-    assertSandboxAllowed(this.id)
-
-    const id = createId('pay')
-
-    return {
-      id,
-      provider: this.id,
-      status: 'created',
-      amountRub: input.amountRub,
-      checkoutUrl: sandboxCheckoutUrl(this.id, id, input.idempotencyKey)
-    }
-  }
-
-  parseWebhook(payload: unknown, signature?: string): ParsedPaymentWebhook {
-    verifyWebhookSignature(payload, signature, providerConfig('ROLLYPAY').secret)
     const body = paymentPayload(payload)
 
     return {
@@ -136,12 +141,195 @@ async function createRemoteInvoice(
   }
 }
 
-function providerConfig(prefix: 'PLATEGA' | 'ROLLYPAY'): PaymentProviderConfig {
+function providerConfig(prefix: 'PLATEGA'): PaymentProviderConfig {
   return {
     apiBaseUrl: process.env[`${prefix}_API_BASE_URL`],
     merchantId: process.env[`${prefix}_MERCHANT_ID`] ?? process.env[`${prefix}_SHOP_ID`],
     secret: process.env[`${prefix}_SECRET`]
   }
+}
+
+type TBankConfig = {
+  apiBaseUrl: string
+  terminalKey: string | undefined
+  password: string | undefined
+  notificationUrl: string | undefined
+  successUrl: string | undefined
+  failUrl: string | undefined
+  description: string
+  receiptTaxation: string | undefined
+  receiptTax: string
+  receiptPaymentMethod: string
+  receiptPaymentObject: string
+}
+
+function tBankConfig(): TBankConfig {
+  return {
+    apiBaseUrl: process.env.TBANK_API_BASE_URL ?? 'https://securepay.tinkoff.ru',
+    terminalKey: process.env.TBANK_TERMINAL_KEY,
+    password: process.env.TBANK_PASSWORD,
+    notificationUrl: process.env.TBANK_NOTIFICATION_URL ?? publicApiUrl('/payments/webhooks/tbank'),
+    successUrl: process.env.TBANK_SUCCESS_URL ?? publicAppUrl('/'),
+    failUrl: process.env.TBANK_FAIL_URL ?? publicAppUrl('/'),
+    description: process.env.TBANK_DESCRIPTION ?? 'VPN subscription',
+    receiptTaxation: process.env.TBANK_RECEIPT_TAXATION,
+    receiptTax: process.env.TBANK_RECEIPT_TAX ?? 'none',
+    receiptPaymentMethod: process.env.TBANK_RECEIPT_PAYMENT_METHOD ?? 'full_payment',
+    receiptPaymentObject: process.env.TBANK_RECEIPT_PAYMENT_OBJECT ?? 'service'
+  }
+}
+
+async function createTBankInvoice(config: TBankConfig, input: CreateInvoiceInput): Promise<PaymentInvoice> {
+  if (!config.terminalKey) throw new Error('TBank terminal key is required')
+  if (!config.password) throw new Error('TBank password is required')
+
+  const amountKopeks = Math.round(input.amountRub * 100)
+  const payload: Record<string, unknown> = {
+    TerminalKey: config.terminalKey,
+    Amount: amountKopeks,
+    OrderId: tBankOrderId(input.idempotencyKey),
+    Description: config.description,
+    NotificationURL: config.notificationUrl,
+    SuccessURL: config.successUrl,
+    FailURL: config.failUrl,
+    PayType: 'O',
+    DATA: {
+      userId: input.userId,
+      planId: input.planId,
+      email: input.email
+    }
+  }
+  const receipt = tBankReceipt(config, input.email, amountKopeks)
+  if (receipt) payload.Receipt = receipt
+  payload.Token = createTBankToken(payload, config.password)
+
+  const response = await fetch(new URL('/v2/Init', normalizedBaseUrl(config.apiBaseUrl)), {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  })
+
+  if (!response.ok) throw new Error(`tbank invoice request failed with ${response.status}`)
+
+  const body = (await response.json()) as Record<string, unknown>
+  if (body.Success === false) {
+    const message = stringField(body, 'Message') ?? stringField(body, 'Details') ?? 'TBank invoice request failed'
+    throw new Error(message)
+  }
+
+  const invoiceId = stringLikeField(body, 'PaymentId')
+  const checkoutUrl = stringField(body, 'PaymentURL') ?? stringField(body, 'PaymentUrl')
+
+  if (!invoiceId) throw new Error('tbank invoice response is missing PaymentId')
+  if (!checkoutUrl) throw new Error('tbank invoice response is missing PaymentURL')
+
+  return {
+    id: invoiceId,
+    provider: 'tbank',
+    status: 'created',
+    amountRub: input.amountRub,
+    checkoutUrl
+  }
+}
+
+function tBankReceipt(config: TBankConfig, email: string | undefined, amountKopeks: number): Record<string, unknown> | null {
+  if (!config.receiptTaxation) return null
+
+  return {
+    Email: email,
+    Taxation: config.receiptTaxation,
+    Items: [
+      {
+        Name: config.description,
+        Price: amountKopeks,
+        Quantity: 1,
+        Amount: amountKopeks,
+        PaymentMethod: config.receiptPaymentMethod,
+        PaymentObject: config.receiptPaymentObject,
+        Tax: config.receiptTax
+      }
+    ]
+  }
+}
+
+export function createTBankToken(payload: Record<string, unknown>, password: string): string {
+  const tokenPayload: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === 'Token' || value === undefined || value === null) continue
+    if (typeof value === 'object') continue
+    tokenPayload[key] = String(value)
+  }
+
+  tokenPayload.Password = password
+
+  const source = Object.keys(tokenPayload)
+    .sort()
+    .map((key) => tokenPayload[key])
+    .join('')
+
+  return createHash('sha256').update(source, 'utf8').digest('hex')
+}
+
+function verifyTBankNotificationToken(payload: unknown, password: string | undefined): void {
+  if (!password || process.env.NODE_ENV === 'test') return
+  const record = recordPayload(payload)
+  const token = stringField(record, 'Token')
+  if (!token) throw new Error('Payment webhook Token is required')
+
+  const expected = createTBankToken(record, password)
+  const expectedBuffer = Buffer.from(expected.toLowerCase())
+  const tokenBuffer = Buffer.from(token.toLowerCase())
+
+  if (expectedBuffer.length !== tokenBuffer.length || !timingSafeEqual(expectedBuffer, tokenBuffer)) {
+    throw new Error('Payment webhook Token is invalid')
+  }
+}
+
+function tBankStatus(value: unknown): PaymentStatus {
+  const status = String(value ?? '').toUpperCase()
+  if (status === 'CONFIRMED') return 'paid'
+  if (['AUTH_FAIL', 'REJECTED'].includes(status)) return 'failed'
+  if (['CANCELED', 'DEADLINE_EXPIRED', 'REVERSED', 'PARTIAL_REVERSED'].includes(status)) return 'cancelled'
+  if (['REFUNDED', 'PARTIAL_REFUNDED'].includes(status)) return 'refunded'
+  if (
+    [
+      'NEW',
+      'FORM_SHOWED',
+      'PREAUTHORIZING',
+      'AUTHORIZING',
+      'AUTHORIZED',
+      '3DS_CHECKING',
+      '3DS_CHECKED',
+      'CONFIRMING',
+      'REFUNDING',
+      'REVERSING'
+    ].includes(status)
+  ) {
+    return 'pending'
+  }
+
+  throw new Error(`Unsupported TBank payment status: ${String(value)}`)
+}
+
+function tBankOrderId(value: string): string {
+  const normalized = value.replace(/[^a-zA-Z0-9_-]/g, '_')
+  if (normalized.length <= 36) return normalized
+
+  const digest = createHash('sha256').update(normalized).digest('hex').slice(0, 8)
+  return `${normalized.slice(0, 27)}_${digest}`
+}
+
+function publicApiUrl(path: string): string {
+  const base = process.env.API_PUBLIC_URL ?? 'http://localhost:3001'
+  return new URL(path, normalizedBaseUrl(base)).toString()
+}
+
+function publicAppUrl(path: string): string {
+  const base = process.env.APP_PUBLIC_URL ?? 'http://localhost:3000'
+  return new URL(path, normalizedBaseUrl(base)).toString()
 }
 
 function normalizedBaseUrl(value: string): string {
@@ -194,6 +382,13 @@ function stringField(record: Record<string, unknown>, key: string): string | nul
   return typeof value === 'string' && value.trim() ? value : null
 }
 
+function stringLikeField(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key]
+  if (typeof value === 'string' && value.trim()) return value
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return null
+}
+
 export function paymentToInvoice(payment: Payment): PaymentInvoice {
   return {
     id: payment.id,
@@ -209,9 +404,7 @@ function paymentPayload(payload: unknown): {
   eventId: string
   status: PaymentStatus
 } {
-  if (!payload || typeof payload !== 'object') throw new Error('Invalid payment webhook payload')
-
-  const record = payload as Record<string, unknown>
+  const record = recordPayload(payload)
   const paymentId = record.paymentId
   const eventId = record.eventId
   const status = record.status
@@ -225,4 +418,9 @@ function paymentPayload(payload: unknown): {
 
 function isPaymentStatus(value: unknown): value is PaymentStatus {
   return ['created', 'pending', 'paid', 'failed', 'cancelled', 'refunded'].includes(String(value))
+}
+
+function recordPayload(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Invalid payment webhook payload')
+  return payload as Record<string, unknown>
 }

@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const args = process.argv.slice(2)
 const composeFileIndex = args.indexOf('--compose-file')
@@ -18,6 +20,9 @@ if (downOnly) {
   runCompose(['-f', composeFile, 'down', '-v'])
   process.exit(0)
 }
+
+mkdirSync(join(process.cwd(), 'output'), { recursive: true })
+writeFileSync(join(process.cwd(), 'output', 'email-outbox.jsonl'), '')
 
 runCompose(['-f', composeFile, 'up', '-d', '--build'])
 

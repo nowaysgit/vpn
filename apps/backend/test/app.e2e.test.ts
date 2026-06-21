@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { createApp } from '../src/app'
+import type { AppStore } from '../src/lib/store'
 import { addTraffic } from '../src/lib/subscriptions'
 import { addDays } from '../src/lib/time'
 
 type RegisterResponse = {
   userId: string
-  verificationToken: string
+  verificationEmailSent: boolean
 }
 
 type LoginResponse = {
@@ -18,6 +19,8 @@ type LoginResponse = {
 
 type InvoiceResponse = {
   id: string
+  provider: 'tbank' | 'platega'
+  amountRub: number
   checkoutUrl: string
 }
 
@@ -35,14 +38,15 @@ type DeviceLimitResponse = {
 
 describe('backend API e2e', () => {
   test('registers, verifies, pays and exposes one subscription URL with all MVP protocols', async () => {
-    const { app } = await createApp()
+    const { app, store } = await createApp()
     const registered = await json<RegisterResponse>(
       app.handle(request('POST', '/auth/register', { email: 'user@example.com', name: 'User', password: 'password123' }))
     )
 
-    expect(registered.verificationToken).toStartWith('verify_')
+    expect(registered.verificationEmailSent).toBe(true)
+    expect('verificationToken' in registered).toBe(false)
 
-    await json(app.handle(request('POST', '/auth/verify-email', { token: registered.verificationToken })))
+    await json(app.handle(request('POST', '/auth/verify-email', { token: verificationTokenFor(store, registered.userId) })))
     const loggedIn = await json<LoginResponse>(
       app.handle(request('POST', '/auth/login', { email: 'user@example.com', password: 'password123' }))
     )
@@ -51,14 +55,11 @@ describe('backend API e2e', () => {
         request('POST', '/payments/create', { planId: 'plan_starter', idempotencyKey: 'first-payment' }, loggedIn.token)
       )
     )
+    expect(invoice.provider).toBe('tbank')
 
-    await json(
+    await text(
       app.handle(
-        request('POST', '/payments/webhooks/platega', {
-          paymentId: invoice.id,
-          eventId: 'evt_paid_1',
-          status: 'paid'
-        })
+        request('POST', '/payments/webhooks/tbank', tBankPaidWebhook(invoice))
       )
     )
 
@@ -78,24 +79,23 @@ describe('backend API e2e', () => {
 
   test('keeps payment webhooks idempotent', async () => {
     const { app, store } = await createApp()
-    const token = await registeredVerifiedToken(app, 'pay@example.com')
+    const token = await registeredVerifiedToken(app, store, 'pay@example.com')
     const invoice = await json<InvoiceResponse>(
       app.handle(request('POST', '/payments/create', { planId: 'plan_starter', idempotencyKey: 'same-key' }, token))
     )
 
-    await json(app.handle(request('POST', '/payments/webhooks/platega', paidWebhook(invoice.id, 'evt_same'))))
-    const duplicate = await json<{ duplicate: boolean }>(
-      app.handle(request('POST', '/payments/webhooks/platega', paidWebhook(invoice.id, 'evt_same')))
-    )
+    const first = await text(app.handle(request('POST', '/payments/webhooks/tbank', tBankPaidWebhook(invoice))))
+    const duplicate = await text(app.handle(request('POST', '/payments/webhooks/tbank', tBankPaidWebhook(invoice))))
 
-    expect(duplicate.duplicate).toBe(true)
+    expect(first).toBe('OK')
+    expect(duplicate).toBe('OK')
     expect(store.paymentEvents).toHaveLength(1)
     expect(store.subscriptions.filter((subscription) => subscription.userId !== store.users[0]?.id)).toHaveLength(1)
   })
 
   test('links Telegram account to an existing web account', async () => {
-    const { app } = await createApp()
-    const token = await registeredVerifiedToken(app, 'telegram@example.com')
+    const { app, store } = await createApp()
+    const token = await registeredVerifiedToken(app, store, 'telegram@example.com')
     const linkToken = await json<{ token: string }>(app.handle(request('POST', '/telegram/link-token', undefined, token)))
 
     const linked = await json<{ ok: boolean; email: string }>(
@@ -118,8 +118,8 @@ describe('backend API e2e', () => {
   })
 
   test('requires explicit choice when adding a fifth device and then replaces selected device', async () => {
-    const { app } = await createApp()
-    const token = await paidUserToken(app, 'devices@example.com')
+    const { app, store } = await createApp()
+    const token = await paidUserToken(app, store, 'devices@example.com')
     const created: DeviceResponse[] = []
 
     for (const label of ['Phone', 'Laptop', 'Tablet', 'Router']) {
@@ -146,8 +146,8 @@ describe('backend API e2e', () => {
   })
 
   test('revokes device credentials when a user deletes a device', async () => {
-    const { app } = await createApp()
-    const token = await paidUserToken(app, 'delete-device@example.com')
+    const { app, store } = await createApp()
+    const token = await paidUserToken(app, store, 'delete-device@example.com')
     const device = await json<DeviceResponse>(app.handle(request('POST', '/me/devices', { label: 'Old phone' }, token)))
     const profile = await json<{ subscriptionUrl: string }>(app.handle(request('GET', '/me/profile', undefined, token)))
 
@@ -168,7 +168,7 @@ describe('backend API e2e', () => {
         node.enabled = false
       })
 
-    const token = await paidUserToken(app, 'fallback@example.com')
+    const token = await paidUserToken(app, store, 'fallback@example.com')
     const device = await json<DeviceResponse>(
       app.handle(request('POST', '/me/devices', { label: 'Fallback laptop' }, token))
     )
@@ -181,7 +181,7 @@ describe('backend API e2e', () => {
 
   test('blocks provisioning after user-level traffic limit is reached', async () => {
     const { app, store } = await createApp()
-    const token = await paidUserToken(app, 'traffic@example.com')
+    const token = await paidUserToken(app, store, 'traffic@example.com')
     const customer = store.users.find((user) => user.email === 'traffic@example.com')
     const subscription = store.subscriptions.find((item) => item.userId === customer?.id)
     expect(subscription).toBeDefined()
@@ -200,7 +200,7 @@ describe('backend API e2e', () => {
 
   test('allows grace period for one day and expires after grace', async () => {
     const { app, store } = await createApp()
-    const token = await paidUserToken(app, 'grace@example.com')
+    const token = await paidUserToken(app, store, 'grace@example.com')
     const customer = store.users.find((user) => user.email === 'grace@example.com')
     const subscription = store.subscriptions.find((item) => item.userId === customer?.id)
     expect(subscription).toBeDefined()
@@ -244,28 +244,43 @@ async function text(responseOrPromise: Response | Promise<Response>): Promise<st
   return response.text()
 }
 
-async function registeredVerifiedToken(app: Awaited<ReturnType<typeof createApp>>['app'], email: string): Promise<string> {
+async function registeredVerifiedToken(
+  app: Awaited<ReturnType<typeof createApp>>['app'],
+  store: AppStore,
+  email: string
+): Promise<string> {
   const registered = await json<RegisterResponse>(
     app.handle(request('POST', '/auth/register', { email, name: 'User', password: 'password123' }))
   )
-  await json(app.handle(request('POST', '/auth/verify-email', { token: registered.verificationToken })))
+  await json(app.handle(request('POST', '/auth/verify-email', { token: verificationTokenFor(store, registered.userId) })))
   const loggedIn = await json<LoginResponse>(app.handle(request('POST', '/auth/login', { email, password: 'password123' })))
   return loggedIn.token
 }
 
-async function paidUserToken(app: Awaited<ReturnType<typeof createApp>>['app'], email: string): Promise<string> {
-  const token = await registeredVerifiedToken(app, email)
+async function paidUserToken(
+  app: Awaited<ReturnType<typeof createApp>>['app'],
+  store: AppStore,
+  email: string
+): Promise<string> {
+  const token = await registeredVerifiedToken(app, store, email)
   const invoice = await json<InvoiceResponse>(
     app.handle(request('POST', '/payments/create', { planId: 'plan_starter', idempotencyKey: `payment-${email}` }, token))
   )
-  await json(app.handle(request('POST', '/payments/webhooks/platega', paidWebhook(invoice.id, `evt-${email}`))))
+  await text(app.handle(request('POST', '/payments/webhooks/tbank', tBankPaidWebhook(invoice))))
   return token
 }
 
-function paidWebhook(paymentId: string, eventId: string) {
+function tBankPaidWebhook(invoice: InvoiceResponse) {
   return {
-    paymentId,
-    eventId,
-    status: 'paid'
+    PaymentId: invoice.id,
+    Status: 'CONFIRMED',
+    Success: true,
+    Amount: invoice.amountRub * 100
   }
+}
+
+function verificationTokenFor(store: AppStore, userId: string): string {
+  const token = store.emailTokens.find((item) => item.userId === userId)
+  if (!token) throw new Error(`Verification token for ${userId} was not created`)
+  return token.token
 }

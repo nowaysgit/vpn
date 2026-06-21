@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { verificationEmailFor } from './email-outbox.js'
 
 test('backend API supports the paid subscription and device path', async ({ request }) => {
   const email = `api-${Date.now()}@example.com`
@@ -7,9 +8,12 @@ test('backend API supports the paid subscription and device path', async ({ requ
   })
   expect(registered.ok()).toBeTruthy()
   const registration = await registered.json()
+  expect(registration.verificationEmailSent).toBeTruthy()
+  expect(registration.verificationToken).toBeUndefined()
+  const verificationEmail = await verificationEmailFor(email)
 
   const verified = await request.post('http://127.0.0.1:3001/auth/verify-email', {
-    data: { token: registration.verificationToken }
+    data: { token: verificationEmail.token }
   })
   expect(verified.ok()).toBeTruthy()
 
@@ -26,10 +30,13 @@ test('backend API supports the paid subscription and device path', async ({ requ
   expect(invoiceResponse.ok()).toBeTruthy()
   const invoice = await invoiceResponse.json()
 
-  const paid = await request.post('http://127.0.0.1:3001/payments/webhooks/platega', {
-    data: { paymentId: invoice.id, eventId: `evt-${email}`, status: 'paid' }
+  expect(invoice.provider).toBe('tbank')
+
+  const paid = await request.post('http://127.0.0.1:3001/payments/webhooks/tbank', {
+    data: { PaymentId: invoice.id, Status: 'CONFIRMED', Success: true, Amount: invoice.amountRub * 100 }
   })
   expect(paid.ok()).toBeTruthy()
+  expect(await paid.text()).toBe('OK')
 
   const device = await request.post('http://127.0.0.1:3001/me/devices', {
     headers: { authorization: `Bearer ${login.token}` },

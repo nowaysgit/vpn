@@ -15,8 +15,9 @@ export function assertProductionConfig(store: AppStore): void {
   if (!isStrongCredentialKey(process.env.CREDENTIAL_ENCRYPTION_KEY)) {
     errors.push('CREDENTIAL_ENCRYPTION_KEY must be a non-default 64-character hex key')
   }
+  assertTBankConfig(errors)
   assertPaymentProviderConfig('PLATEGA', errors)
-  assertPaymentProviderConfig('ROLLYPAY', errors)
+  assertEmailConfig(errors)
   assertMarzbanConfig(errors)
   if (!process.env.TELEGRAM_BOT_SECRET) errors.push('TELEGRAM_BOT_SECRET is required')
 
@@ -29,7 +30,19 @@ function isStrongCredentialKey(value: string | undefined): boolean {
   return /^[0-9a-fA-F]{64}$/.test(value)
 }
 
-function assertPaymentProviderConfig(prefix: 'PLATEGA' | 'ROLLYPAY', errors: string[]): void {
+function assertTBankConfig(errors: string[]): void {
+  if (!process.env.TBANK_TERMINAL_KEY || process.env.TBANK_TERMINAL_KEY === 'demo') {
+    errors.push('TBANK_TERMINAL_KEY must be set')
+  }
+  if (!process.env.TBANK_PASSWORD || process.env.TBANK_PASSWORD === 'demo-secret') {
+    errors.push('TBANK_PASSWORD must be set to a production secret')
+  }
+  if (!process.env.TBANK_NOTIFICATION_URL && !process.env.API_PUBLIC_URL) {
+    errors.push('TBANK_NOTIFICATION_URL or API_PUBLIC_URL is required')
+  }
+}
+
+function assertPaymentProviderConfig(prefix: 'PLATEGA', errors: string[]): void {
   const baseUrl = process.env[`${prefix}_API_BASE_URL`]
   const merchantId = process.env[`${prefix}_MERCHANT_ID`] ?? process.env[`${prefix}_SHOP_ID`]
   const secret = process.env[`${prefix}_SECRET`]
@@ -37,6 +50,18 @@ function assertPaymentProviderConfig(prefix: 'PLATEGA' | 'ROLLYPAY', errors: str
   if (!baseUrl) errors.push(`${prefix}_API_BASE_URL is required`)
   if (!merchantId || merchantId === 'demo') errors.push(`${prefix}_MERCHANT_ID or ${prefix}_SHOP_ID must be set`)
   if (!secret || secret === 'demo-secret') errors.push(`${prefix}_SECRET must be set to a production secret`)
+}
+
+function assertEmailConfig(errors: string[]): void {
+  if ((process.env.EMAIL_DELIVERY_MODE ?? 'smtp') !== 'smtp') errors.push('EMAIL_DELIVERY_MODE=smtp is required in production')
+  if (!process.env.EMAIL_VERIFICATION_BASE_URL && !process.env.APP_PUBLIC_URL) {
+    errors.push('EMAIL_VERIFICATION_BASE_URL or APP_PUBLIC_URL is required')
+  }
+  if (!process.env.YANDEX360_SMTP_USERNAME) errors.push('YANDEX360_SMTP_USERNAME is required')
+  if (!process.env.YANDEX360_SMTP_PASSWORD || process.env.YANDEX360_SMTP_PASSWORD === 'change-me') {
+    errors.push('YANDEX360_SMTP_PASSWORD must be set to an app password')
+  }
+  if (!process.env.YANDEX360_FROM_EMAIL) errors.push('YANDEX360_FROM_EMAIL is required')
 }
 
 function assertMarzbanConfig(errors: string[]): void {

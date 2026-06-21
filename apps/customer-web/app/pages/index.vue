@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { Check, Copy, CreditCard, Link2, LogIn, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { Copy, CreditCard, Link2, LogIn, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
 import type { CustomerDevice, CustomerProfile, PaymentInvoice, PublicPlan } from '@vpn/api-contract'
 import { CustomerApi } from '~/lib/api'
 import { dateLabel, rub } from '~/lib/format'
 
 const config = useRuntimeConfig()
+const route = useRoute()
 const api = new CustomerApi(config.public.apiBaseUrl)
 
 const email = ref('user@example.com')
 const name = ref('User')
 const password = ref('password123')
-const verificationToken = ref('')
 const authToken = ref('')
 const profile = ref<CustomerProfile | null>(null)
 const plans = ref<PublicPlan[]>([])
@@ -40,20 +40,22 @@ onMounted(async () => {
     authToken.value = window.localStorage.getItem('vpn.customer.token') ?? ''
   }
 
+  const token = queryValue(route.query.verificationToken)
+  if (token) await verifyEmailToken(token)
   if (authToken.value) await refreshCabinet()
 })
 
 async function register() {
   await run(async () => {
-    const result = await api.register({ email: email.value, name: name.value, password: password.value })
-    verificationToken.value = result.verificationToken
-    notice.value = 'Account created. Verification token is ready.'
+    await api.register({ email: email.value, name: name.value, password: password.value })
+    notice.value = 'Account created. Check your email for the verification link.'
   })
 }
 
-async function verifyEmail() {
+async function verifyEmailToken(token: string) {
   await run(async () => {
-    await api.verifyEmail(verificationToken.value)
+    await api.verifyEmail(token)
+    if (import.meta.client) window.history.replaceState({}, document.title, window.location.pathname)
     notice.value = 'Email verified.'
   })
 }
@@ -76,10 +78,10 @@ async function createPayment() {
 
 async function sandboxPaid() {
   if (!invoice.value) return
-  const invoiceId = invoice.value.id
 
   await run(async () => {
-    await api.sandboxMarkPaid(invoiceId)
+    if (!invoice.value) return
+    await api.sandboxMarkPaid(invoice.value)
     await refreshCabinet()
     notice.value = 'Sandbox payment marked as paid.'
   })
@@ -148,6 +150,11 @@ async function run(action: () => Promise<void>) {
     loading.value = false
   }
 }
+
+function queryValue(value: unknown): string {
+  if (Array.isArray(value)) return typeof value[0] === 'string' ? value[0] : ''
+  return typeof value === 'string' ? value : ''
+}
 </script>
 
 <template>
@@ -191,14 +198,6 @@ async function run(action: () => Promise<void>) {
               Login
             </button>
           </div>
-          <label class="label">
-            Email verification token
-            <input v-model="verificationToken" class="input" data-testid="verification-token">
-          </label>
-          <button class="secondary" data-testid="verify-email" :disabled="loading || !verificationToken" @click="verifyEmail">
-            <Check :size="16" />
-            Verify email
-          </button>
         </section>
 
         <section class="stack" aria-labelledby="payment-title">

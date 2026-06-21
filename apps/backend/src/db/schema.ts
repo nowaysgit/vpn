@@ -20,7 +20,7 @@ export const subscriptionStatus = pgEnum('subscription_status', [
   'blocked'
 ])
 export const deviceStatus = pgEnum('device_status', ['active', 'revoked', 'pending_replacement'])
-export const paymentProvider = pgEnum('payment_provider', ['platega', 'rollypay', 'manual'])
+export const paymentProvider = pgEnum('payment_provider', ['tbank', 'platega', 'manual'])
 export const paymentStatus = pgEnum('payment_status', [
   'created',
   'pending',

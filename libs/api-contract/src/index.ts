@@ -10,7 +10,7 @@ export type SubscriptionStatus =
 
 export type VpnProtocol = 'vless-reality' | 'trojan-tls' | 'shadowsocks' | 'external-manual'
 
-export type PaymentProvider = 'platega' | 'rollypay' | 'manual'
+export type PaymentProvider = 'tbank' | 'platega' | 'manual'
 
 export type PaymentStatus =
   | 'created'

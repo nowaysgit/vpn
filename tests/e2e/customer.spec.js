@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { verificationEmailFor } from './email-outbox.js'
 
 test('customer can register, pay, copy subscription and replace fifth device', async ({ page }) => {
   const email = `ui-${Date.now()}@example.com`
@@ -10,12 +11,15 @@ test('customer can register, pay, copy subscription and replace fifth device', a
   await page.getByTestId('register').click()
   await expect(page.getByTestId('notice')).toContainText('Account created')
 
-  await page.getByTestId('verify-email').click()
+  const verificationEmail = await verificationEmailFor(email)
+  await page.goto(verificationEmail.verificationUrl)
   await expect(page.getByTestId('notice')).toContainText('Email verified')
 
+  await page.getByTestId('email').fill(email)
+  await page.getByTestId('password').fill('password123')
   await page.getByTestId('login').click()
   await page.getByTestId('create-payment').click()
-  await expect(page.getByTestId('invoice')).toContainText('platega')
+  await expect(page.getByTestId('invoice')).toContainText('tbank')
   await page.getByTestId('sandbox-paid').click()
   await expect(page.getByTestId('subscription-status')).toContainText('active')
 

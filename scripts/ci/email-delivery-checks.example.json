@@ -1,0 +1,22 @@
+{
+  "resultPath": "output/email-smoke.json",
+  "timeoutSeconds": 180,
+  "accounts": [
+    {
+      "name": "Yandex recipient",
+      "address": "you@yandex.ru",
+      "passwordEnv": "YANDEX_TEST_IMAP_PASSWORD"
+    },
+    {
+      "name": "Mail.ru recipient",
+      "address": "you@mail.ru",
+      "passwordEnv": "MAILRU_TEST_IMAP_PASSWORD"
+    },
+    {
+      "name": "Gmail recipient",
+      "address": "you@gmail.com",
+      "passwordEnv": "GMAIL_TEST_IMAP_APP_PASSWORD",
+      "spamMailboxes": ["[Gmail]/Spam", "Spam"]
+    }
+  ]
+}

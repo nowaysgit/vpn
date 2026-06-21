@@ -2,7 +2,7 @@ import type { CustomerDevice, CustomerProfile, PaymentInvoice, PublicPlan, Teleg
 
 export type RegisterResult = {
   userId: string
-  verificationToken: string
+  verificationEmailSent: boolean
 }
 
 export type LoginResult = {
@@ -67,14 +67,27 @@ export class CustomerApi {
     return this.request('/payments/create', {
       method: 'POST',
       token,
-      body: { planId, provider: 'platega', idempotencyKey: `web-${Date.now()}` }
+      body: { planId, idempotencyKey: `web-${Date.now()}` }
     })
   }
 
-  sandboxMarkPaid(invoiceId: string): Promise<{ ok: boolean }> {
+  async sandboxMarkPaid(invoice: PaymentInvoice): Promise<{ ok: boolean }> {
+    if (invoice.provider === 'tbank') {
+      const result = await this.request('/payments/webhooks/tbank', {
+        method: 'POST',
+        body: {
+          PaymentId: invoice.id,
+          Status: 'CONFIRMED',
+          Success: true,
+          Amount: invoice.amountRub * 100
+        }
+      })
+      return { ok: result === 'OK' }
+    }
+
     return this.request('/payments/webhooks/platega', {
       method: 'POST',
-      body: { paymentId: invoiceId, eventId: `sandbox-${Date.now()}`, status: 'paid' }
+      body: { paymentId: invoice.id, eventId: `sandbox-${Date.now()}`, status: 'paid' }
     })
   }
 
@@ -89,7 +102,7 @@ export class CustomerApi {
     })
 
     const text = await response.text()
-    const data = text ? JSON.parse(text) as unknown : null
+    const data = text ? parseResponseBody(text) : null
     if (!response.ok && !options.acceptStatus?.includes(response.status)) throw new Error(errorMessage(data, response.status))
     return data as T
   }
@@ -109,4 +122,12 @@ function errorMessage(data: unknown, status: number): string {
   }
 
   return `Request failed with status ${status}`
+}
+
+function parseResponseBody(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return text
+  }
 }

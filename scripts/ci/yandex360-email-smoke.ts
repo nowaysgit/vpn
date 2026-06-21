@@ -1,0 +1,72 @@
+#!/usr/bin/env bun
+import { createEmailSender } from '../../apps/backend/src/lib/email'
+
+const resultPath = process.env.EMAIL_SMOKE_RESULT_PATH ?? 'output/email-smoke.json'
+const marker = process.env.EMAIL_SMOKE_MARKER ?? `smoke_${Date.now()}_${Math.random().toString(16).slice(2)}`
+const strict = process.env.EXTERNAL_SMOKE_STRICT === 'true'
+const recipients = (process.env.EMAIL_SMOKE_TO ?? '')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean)
+
+if (recipients.length === 0) {
+  const message = 'Yandex 360 email smoke skipped: set EMAIL_SMOKE_TO to one or more comma-separated recipients.'
+  if (strict) {
+    console.error(message)
+    process.exit(1)
+  }
+
+  console.log(message)
+  process.exit(0)
+}
+
+const required = ['YANDEX360_SMTP_USERNAME', 'YANDEX360_SMTP_PASSWORD', 'YANDEX360_FROM_EMAIL']
+const missing = required.filter((key) => !process.env[key])
+if (missing.length > 0) {
+  const message = `Yandex 360 email smoke skipped: missing ${missing.join(', ')}.`
+  if (strict) {
+    console.error(message)
+    process.exit(1)
+  }
+
+  console.log(message)
+  process.exit(0)
+}
+
+process.env.EMAIL_DELIVERY_MODE = 'smtp'
+
+const sender = createEmailSender()
+const verificationBase = process.env.EMAIL_VERIFICATION_BASE_URL ?? process.env.APP_PUBLIC_URL ?? 'http://localhost:3000'
+const sent: Array<{ to: string; token: string; verificationUrl: string }> = []
+
+for (const [index, recipient] of recipients.entries()) {
+  const token = `${marker}_${index}`
+  const verificationUrl = new URL('/', verificationBase.endsWith('/') ? verificationBase : `${verificationBase}/`)
+  verificationUrl.searchParams.set('verificationToken', token)
+
+  await sender.sendVerificationEmail({
+    to: recipient,
+    name: 'Smoke Test',
+    token,
+    verificationUrl: verificationUrl.toString(),
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+  })
+  sent.push({ to: recipient, token, verificationUrl: verificationUrl.toString() })
+  console.log(`Sent verification smoke email to ${recipient}`)
+}
+
+await Bun.write(
+  resultPath,
+  `${JSON.stringify(
+    {
+      marker,
+      sentAt: new Date().toISOString(),
+      messages: sent
+    },
+    null,
+    2
+  )}\n`
+)
+
+console.log(`Yandex 360 email smoke finished. Result marker saved to ${resultPath}.`)
+console.log('Run bun run check:email-delivery to verify inbox placement for Yandex/Mail.ru/Gmail test accounts.')

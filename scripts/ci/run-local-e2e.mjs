@@ -9,10 +9,12 @@ const outputDir = join(root, 'output')
 const wrapperLogPath = join(outputDir, 'e2e-wrapper.log')
 const serviceLogPath = join(outputDir, 'e2e-services.log')
 const testLogPath = join(outputDir, 'playwright-run.log')
+const emailOutboxPath = join(outputDir, 'email-outbox.jsonl')
 const services = []
 
 mkdirSync(outputDir, { recursive: true })
 writeFileSync(serviceLogPath, '')
+writeFileSync(emailOutboxPath, '')
 
 if (process.env.E2E_CLEAN_CHILD !== '1' && process.env.npm_lifecycle_event) {
   const code = await runCleanChild()
@@ -26,7 +28,9 @@ try {
       NODE_ENV: 'test',
       PORT: '3001',
       JWT_ACCESS_SECRET: 'test-secret',
-      CREDENTIAL_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      CREDENTIAL_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000',
+      EMAIL_DELIVERY_MODE: 'outbox',
+      EMAIL_DEV_OUTBOX_PATH: emailOutboxPath
     })
   )
   services.push(
@@ -123,7 +127,7 @@ async function runPlaywright(commandArgs) {
   const logFd = openSync(testLogPath, 'w')
   const child = spawn(playwrightBin, ['test', ...commandArgs], {
     cwd: root,
-    env: childEnv({ PLAYWRIGHT_SKIP_WEBSERVER: '1' }),
+    env: childEnv({ PLAYWRIGHT_SKIP_WEBSERVER: '1', EMAIL_DEV_OUTBOX_PATH: emailOutboxPath }),
     stdio: ['ignore', logFd, logFd],
     shell: false
   })

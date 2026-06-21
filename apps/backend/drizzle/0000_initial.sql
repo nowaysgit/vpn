@@ -1,7 +1,7 @@
 CREATE TYPE user_role AS ENUM ('owner', 'admin', 'support', 'customer');
 CREATE TYPE subscription_status AS ENUM ('trialing', 'active', 'traffic_over_limit', 'grace', 'expired', 'blocked');
 CREATE TYPE device_status AS ENUM ('active', 'revoked', 'pending_replacement');
-CREATE TYPE payment_provider AS ENUM ('platega', 'rollypay', 'manual');
+CREATE TYPE payment_provider AS ENUM ('tbank', 'platega', 'manual');
 CREATE TYPE payment_status AS ENUM ('created', 'pending', 'paid', 'failed', 'cancelled', 'refunded');
 CREATE TYPE vpn_protocol AS ENUM ('vless-reality', 'trojan-tls', 'shadowsocks', 'external-manual');
 

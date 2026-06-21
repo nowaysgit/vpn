@@ -13,8 +13,9 @@ import { Elysia, t } from 'elysia'
 import { assertProductionConfig } from './lib/config'
 import { AppError, notFound } from './lib/errors'
 import { DEVICE_LIMIT, MVP_PROTOCOLS, type Device, type Payment, type Plan, type Subscription, type User } from './lib/domain'
+import { createEmailSender, type EmailSender } from './lib/email'
 import { createId, createToken } from './lib/id'
-import { PlategaPaymentAdapter, RollyPayPaymentAdapter, paymentToInvoice } from './lib/payments'
+import { PlategaPaymentAdapter, TBankPaymentAdapter, paymentToInvoice, type CreateInvoiceInput } from './lib/payments'
 import { ManualExternalProviderAdapter, MarzbanProviderAdapter } from './lib/providers'
 import { hashPassword, signToken, verifyPassword, verifySignedToken, encryptJson, decryptJson } from './lib/security'
 import { createDefaultStore, persistStore, type AppStore } from './lib/store'
@@ -23,14 +24,16 @@ import { addDays, bytesToGb, now, toIso } from './lib/time'
 
 type CreateAppOptions = {
   store?: AppStore
+  emailSender?: EmailSender
 }
 
+const tbank = new TBankPaymentAdapter()
 const platega = new PlategaPaymentAdapter()
-const rollypay = new RollyPayPaymentAdapter()
 
 export async function createApp(options: CreateAppOptions = {}) {
   const store = options.store ?? (await createDefaultStore())
   assertProductionConfig(store)
+  const emailSender = options.emailSender ?? createEmailSender()
 
   const app = new Elysia()
     .use(cors({ origin: true, credentials: true }))
@@ -76,20 +79,39 @@ export async function createApp(options: CreateAppOptions = {}) {
           createdAt: now()
         }
         const token = createToken('verify')
+        const expiresAt = addDays(now(), 1)
+        const verificationUrl = emailVerificationUrl(token)
 
         store.users.push(user)
         store.emailTokens.push({
           token,
           userId: user.id,
-          expiresAt: addDays(now(), 1),
+          expiresAt,
           usedAt: null
         })
-        await persistStore(store)
+
+        try {
+          await persistStore(store)
+          await emailSender.sendVerificationEmail({
+            to: user.email,
+            name: user.name,
+            token,
+            verificationUrl,
+            expiresAt
+          })
+        } catch {
+          const userIndex = store.users.indexOf(user)
+          const tokenIndex = store.emailTokens.findIndex((item) => item.token === token)
+          if (userIndex >= 0) store.users.splice(userIndex, 1)
+          if (tokenIndex >= 0) store.emailTokens.splice(tokenIndex, 1)
+          await persistStore(store).catch(() => undefined)
+          throw new AppError('VALIDATION_ERROR', 'Verification email could not be sent', 502)
+        }
 
         set.status = 201
         return {
           userId: user.id,
-          verificationToken: token
+          verificationEmailSent: true
         }
       },
       {
@@ -249,22 +271,22 @@ export async function createApp(options: CreateAppOptions = {}) {
         const user = requireUser(store, headers.authorization)
         if (!user.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED', 'Verify email before payment', 403)
         const plan = requireEntity(store.plans.find((item) => item.id === body.planId), 'Plan not found')
-        const provider = paymentAdapter(body.provider ?? 'platega')
         const idempotencyKey = body.idempotencyKey ?? createToken('idem')
         const existing = store.payments.find((payment) => payment.userId === user.id && payment.idempotencyKey === idempotencyKey)
         if (existing) return paymentToInvoice(existing)
 
-        const invoice = await provider.createInvoice({
+        const invoice = await createInvoiceWithFallback(body.provider, {
           userId: user.id,
           planId: plan.id,
           amountRub: plan.priceRub,
-          idempotencyKey
+          idempotencyKey,
+          email: user.email
         })
         const payment: Payment = {
           id: invoice.id,
           userId: user.id,
           planId: plan.id,
-          provider: provider.id,
+          provider: invoice.provider,
           providerPaymentId: invoice.id,
           status: invoice.status,
           amountRub: invoice.amountRub,
@@ -281,18 +303,18 @@ export async function createApp(options: CreateAppOptions = {}) {
       {
         body: t.Object({
           planId: t.String(),
-          provider: t.Optional(t.Union([t.Literal('platega'), t.Literal('rollypay')])),
+          provider: t.Optional(t.Union([t.Literal('tbank'), t.Literal('platega')])),
           idempotencyKey: t.Optional(t.String())
         })
       }
     )
+    .post('/payments/webhooks/tbank', async ({ body, headers }) => {
+      processPaymentWebhook(store, 'tbank', body, paymentSignature(headers))
+      await persistStore(store)
+      return 'OK'
+    })
     .post('/payments/webhooks/platega', async ({ body, headers }) => {
       const result = processPaymentWebhook(store, 'platega', body, paymentSignature(headers))
-      await persistStore(store)
-      return result
-    })
-    .post('/payments/webhooks/rollypay', async ({ body, headers }) => {
-      const result = processPaymentWebhook(store, 'rollypay', body, paymentSignature(headers))
       await persistStore(store)
       return result
     })
@@ -695,8 +717,19 @@ async function provisionOnManualFallback(node: { id: string; publicHost: string 
   return profiles.length > 0 ? { node, profiles } : null
 }
 
+async function createInvoiceWithFallback(provider: Exclude<PaymentProvider, 'manual'> | undefined, input: CreateInvoiceInput) {
+  const primary = paymentAdapter(provider ?? 'tbank')
+
+  try {
+    return await primary.createInvoice(input)
+  } catch (error) {
+    if (provider || primary.id !== 'tbank') throw error
+    return platega.createInvoice(input)
+  }
+}
+
 function paymentAdapter(provider: PaymentProvider) {
-  if (provider === 'rollypay') return rollypay
+  if (provider === 'tbank') return tbank
   if (provider === 'manual') throw new AppError('PAYMENT_PROVIDER_ERROR', 'Manual provider cannot create invoices', 400)
   return platega
 }
@@ -746,7 +779,14 @@ function processPaymentWebhook(
 }
 
 function paymentSignature(headers: Record<string, string | undefined>): string | undefined {
-  return headers['x-signature'] ?? headers['x-payment-signature'] ?? headers['x-platega-signature'] ?? headers['x-rollypay-signature']
+  return headers['x-signature'] ?? headers['x-payment-signature'] ?? headers['x-platega-signature'] ?? headers['x-tbank-signature']
+}
+
+function emailVerificationUrl(token: string): string {
+  const base = process.env.EMAIL_VERIFICATION_BASE_URL ?? process.env.APP_PUBLIC_URL ?? 'http://localhost:3000'
+  const url = new URL('/', base.endsWith('/') ? base : `${base}/`)
+  url.searchParams.set('verificationToken', token)
+  return url.toString()
 }
 
 function grantSubscription(store: AppStore, userId: string, plan: Plan, adminId: string | null): Subscription {
