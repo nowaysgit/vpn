@@ -12,7 +12,8 @@ test('customer can register, pay, copy subscription and replace fifth device', a
   await expect(page.getByTestId('notice')).toContainText('Account created')
 
   const verificationEmail = await verificationEmailFor(email)
-  await page.goto(verificationEmail.verificationUrl)
+  await page.getByTestId('verification-code').fill(verificationEmail.code)
+  await page.getByTestId('verify-email').click()
   await expect(page.getByTestId('notice')).toContainText('Email verified')
 
   await page.getByTestId('email').fill(email)

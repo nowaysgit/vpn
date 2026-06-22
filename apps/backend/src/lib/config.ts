@@ -54,8 +54,8 @@ function assertPaymentProviderConfig(prefix: 'PLATEGA', errors: string[]): void 
 
 function assertEmailConfig(errors: string[]): void {
   if ((process.env.EMAIL_PROVIDER ?? 'smtp') !== 'smtp') errors.push('EMAIL_PROVIDER=smtp is required in production')
-  if (!process.env.EMAIL_VERIFICATION_BASE_URL && !process.env.APP_PUBLIC_URL) {
-    errors.push('EMAIL_VERIFICATION_BASE_URL or APP_PUBLIC_URL is required')
+  if (!process.env.EMAIL_VERIFICATION_SECRET || process.env.EMAIL_VERIFICATION_SECRET === 'dev-email-verification-secret') {
+    errors.push('EMAIL_VERIFICATION_SECRET must be set to a production secret')
   }
   if (!process.env.EMAIL_SMTP_HOST) errors.push('EMAIL_SMTP_HOST is required')
   if (!process.env.EMAIL_SMTP_USER) errors.push('EMAIL_SMTP_USER is required')

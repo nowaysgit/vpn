@@ -24,7 +24,7 @@ type AccountConfig = {
 
 type SmokeResult = {
   marker: string
-  messages: Array<{ to: string; token: string; verificationUrl: string }>
+  messages: Array<{ to: string; code: string }>
 }
 
 const config = await loadConfig()

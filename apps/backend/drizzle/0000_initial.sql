@@ -24,6 +24,7 @@ CREATE TABLE email_verification_tokens (
   token text PRIMARY KEY,
   user_id text NOT NULL REFERENCES users(id),
   expires_at timestamptz NOT NULL,
+  resend_available_at timestamptz NOT NULL DEFAULT now(),
   used_at timestamptz
 );
 

@@ -55,6 +55,7 @@ export const emailVerificationTokens = pgTable('email_verification_tokens', {
   token: text('token').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  resendAvailableAt: timestamp('resend_available_at', { withTimezone: true }).notNull().defaultNow(),
   usedAt: timestamp('used_at', { withTimezone: true })
 })
 

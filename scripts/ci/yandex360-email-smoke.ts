@@ -36,22 +36,18 @@ if (missing.length > 0) {
 process.env.EMAIL_PROVIDER = 'smtp'
 
 const sender = createEmailSender()
-const verificationBase = process.env.EMAIL_VERIFICATION_BASE_URL ?? process.env.APP_PUBLIC_URL ?? 'http://localhost:3000'
-const sent: Array<{ to: string; token: string; verificationUrl: string }> = []
+const sent: Array<{ to: string; code: string }> = []
 
 for (const [index, recipient] of recipients.entries()) {
-  const token = `${marker}_${index}`
-  const verificationUrl = new URL('/', verificationBase.endsWith('/') ? verificationBase : `${verificationBase}/`)
-  verificationUrl.searchParams.set('verificationToken', token)
+  const code = String((Date.now() + index) % 1_000_000).padStart(6, '0')
 
   await sender.sendVerificationEmail({
     to: recipient,
     name: 'Smoke Test',
-    token,
-    verificationUrl: verificationUrl.toString(),
+    code,
     expiresAt: new Date(Date.now() + 60 * 60 * 1000)
   })
-  sent.push({ to: recipient, token, verificationUrl: verificationUrl.toString() })
+  sent.push({ to: recipient, code })
   console.log(`Sent verification smoke email to ${recipient}`)
 }
 

@@ -5,8 +5,7 @@ import { connect as tlsConnect, type TLSSocket } from 'node:tls'
 export type VerificationEmailInput = {
   to: string
   name: string
-  token: string
-  verificationUrl: string
+  code: string
   expiresAt: Date
 }
 
@@ -63,8 +62,7 @@ class DevOutboxEmailSender implements EmailSender {
         type: 'email.verification',
         to: input.to,
         name: input.name,
-        token: input.token,
-        verificationUrl: input.verificationUrl,
+        code: input.code,
         expiresAt: input.expiresAt.toISOString(),
         createdAt: new Date().toISOString()
       })}\n`,
@@ -103,10 +101,10 @@ function verificationMessage(config: SmtpConfig, input: VerificationEmailInput):
   const text = [
     `Hello ${input.name},`,
     '',
-    'Confirm your email address to continue:',
-    input.verificationUrl,
+    'Confirm your email address with this code:',
+    input.code,
     '',
-    `This link expires at ${input.expiresAt.toISOString()}.`,
+    `This code expires at ${input.expiresAt.toISOString()}.`,
     '',
     'If you did not create this account, ignore this email.'
   ].join('\r\n')

@@ -35,6 +35,7 @@ type EmailTokenRow = QueryResultRow & {
   token: string
   user_id: string
   expires_at: Date
+  resend_available_at: Date
   used_at: Date | null
 }
 
@@ -238,6 +239,7 @@ async function loadStore(pool: Pool): Promise<AppStore> {
       token: row.token,
       userId: row.user_id,
       expiresAt: row.expires_at,
+      resendAvailableAt: row.resend_available_at,
       usedAt: row.used_at
     })),
     sessions: new Map(),
@@ -380,13 +382,14 @@ async function saveStore(pool: Pool, store: AppStore): Promise<void> {
 
     for (const token of store.emailTokens) {
       await client.query(
-        `insert into email_verification_tokens (token, user_id, expires_at, used_at)
-         values ($1, $2, $3, $4)
+        `insert into email_verification_tokens (token, user_id, expires_at, resend_available_at, used_at)
+         values ($1, $2, $3, $4, $5)
          on conflict (token) do update set
           user_id = excluded.user_id,
           expires_at = excluded.expires_at,
+          resend_available_at = excluded.resend_available_at,
           used_at = excluded.used_at`,
-        [token.token, token.userId, token.expiresAt, token.usedAt]
+        [token.token, token.userId, token.expiresAt, token.resendAvailableAt, token.usedAt]
       )
     }
 

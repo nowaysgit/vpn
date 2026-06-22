@@ -13,7 +13,7 @@ test('backend API supports the paid subscription and device path', async ({ requ
   const verificationEmail = await verificationEmailFor(email)
 
   const verified = await request.post('http://127.0.0.1:3001/auth/verify-email', {
-    data: { token: verificationEmail.token }
+    data: { email, code: verificationEmail.code }
   })
   expect(verified.ok()).toBeTruthy()
 

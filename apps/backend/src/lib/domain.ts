@@ -21,6 +21,7 @@ export type EmailVerificationToken = {
   token: string
   userId: string
   expiresAt: Date
+  resendAvailableAt: Date
   usedAt: Date | null
 }
 

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { Pool } from 'pg'
 import { createApp } from '../src/app'
+import type { EmailSender, VerificationEmailInput } from '../src/lib/email'
 import { createPostgresStore } from '../src/lib/postgres-store'
 
 const databaseUrl = process.env.TEST_DATABASE_URL
@@ -21,16 +22,21 @@ describe('postgres store integration', () => {
     await runInitialMigration(pool)
 
     const store = await createPostgresStore({ pool })
-    const { app } = await createApp({ store })
+    const codes = new Map<string, string>()
+    const emailSender: EmailSender = {
+      async sendVerificationEmail(input: VerificationEmailInput): Promise<void> {
+        codes.set(input.to, input.code)
+      }
+    }
+    const { app } = await createApp({ store, emailSender })
 
-    const registered = await json<{ userId: string; verificationEmailSent: boolean }>(
+    const registered = await json<{ userId: string; email: string; verificationEmailSent: boolean }>(
       app.handle(request('POST', '/auth/register', { email: 'pg@example.com', name: 'PG User', password: 'password123' }))
     )
-    const verificationToken = store.emailTokens.find((item) => item.userId === registered.userId)?.token
+    const verificationCode = codes.get(registered.email)
     expect(registered.verificationEmailSent).toBe(true)
-    if (!verificationToken) throw new Error('Verification token was not created')
-    expect(verificationToken).toStartWith('verify_')
-    await json(app.handle(request('POST', '/auth/verify-email', { token: verificationToken })))
+    if (!verificationCode) throw new Error('Verification code was not sent')
+    await json(app.handle(request('POST', '/auth/verify-email', { email: registered.email, code: verificationCode })))
 
     const persisted = await pool.query<{ email: string; email_verified: boolean }>(
       'select email, email_verified from users where email = $1',
@@ -50,7 +56,7 @@ async function resetDatabase(pool: Pool): Promise<void> {
 }
 
 async function runInitialMigration(pool: Pool): Promise<void> {
-  for (const file of ['0000_initial.sql', '0001_tbank_payment_provider.sql']) {
+  for (const file of ['0000_initial.sql', '0001_tbank_payment_provider.sql', '0002_email_verification_code_resend.sql']) {
     const sql = await Bun.file(new URL(`../drizzle/${file}`, import.meta.url)).text()
     await pool.query(sql)
   }

@@ -2,7 +2,9 @@ import type { CustomerDevice, CustomerProfile, PaymentInvoice, PublicPlan, Teleg
 
 export type RegisterResult = {
   userId: string
+  email: string
   verificationEmailSent: boolean
+  resendAvailableAt: string
 }
 
 export type LoginResult = {
@@ -31,8 +33,12 @@ export class CustomerApi {
     return this.request('/auth/register', { method: 'POST', body: input })
   }
 
-  verifyEmail(token: string): Promise<{ ok: boolean }> {
-    return this.request('/auth/verify-email', { method: 'POST', body: { token } })
+  resendRegistration(email: string): Promise<Omit<RegisterResult, 'userId'>> {
+    return this.request('/auth/register/resend', { method: 'POST', body: { email } })
+  }
+
+  verifyEmail(email: string, code: string): Promise<{ ok: boolean }> {
+    return this.request('/auth/verify-email', { method: 'POST', body: { email, code } })
   }
 
   login(input: { email: string; password: string }): Promise<LoginResult> {

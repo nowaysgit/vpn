@@ -10,6 +10,7 @@ import type {
   PublicPlan
 } from '@vpn/api-contract'
 import { Elysia, t } from 'elysia'
+import { createHmac } from 'node:crypto'
 import { assertProductionConfig } from './lib/config'
 import { AppError, notFound } from './lib/errors'
 import { DEVICE_LIMIT, MVP_PROTOCOLS, type Device, type Payment, type Plan, type Subscription, type User } from './lib/domain'
@@ -61,16 +62,18 @@ export async function createApp(options: CreateAppOptions = {}) {
       '/auth/register',
       async ({ body, set }) => {
         const email = body.email.trim().toLowerCase()
-        if (store.users.some((user) => user.email === email)) {
+        const existing = store.users.find((user) => user.email === email)
+        if (existing?.emailVerified) {
           set.status = 409
           return { code: 'VALIDATION_ERROR', message: 'Email is already registered' }
         }
 
-        const user: User = {
+        const passwordHash = await hashPassword(body.password)
+        const user: User = existing ?? {
           id: createId('usr'),
           email,
           name: body.name.trim(),
-          passwordHash: await hashPassword(body.password),
+          passwordHash,
           emailVerified: false,
           role: 'customer',
           blocked: false,
@@ -78,31 +81,34 @@ export async function createApp(options: CreateAppOptions = {}) {
           subscriptionToken: createToken('subtok'),
           createdAt: now()
         }
-        const token = createToken('verify')
-        const expiresAt = addDays(now(), 1)
-        const verificationUrl = emailVerificationUrl(token)
 
-        store.users.push(user)
-        store.emailTokens.push({
-          token,
-          userId: user.id,
-          expiresAt,
-          usedAt: null
-        })
+        const verification = createEmailVerification(store, user)
+        if ('error' in verification) {
+          set.status = verification.status
+          return { code: 'VALIDATION_ERROR', message: verification.error, resendAvailableAt: verification.resendAvailableAt.toISOString() }
+        }
+
+        if (existing) {
+          existing.name = body.name.trim()
+          existing.passwordHash = passwordHash
+        } else {
+          store.users.push(user)
+        }
 
         try {
           await persistStore(store)
           await emailSender.sendVerificationEmail({
             to: user.email,
             name: user.name,
-            token,
-            verificationUrl,
-            expiresAt
+            code: verification.code,
+            expiresAt: verification.expiresAt
           })
         } catch {
-          const userIndex = store.users.indexOf(user)
-          const tokenIndex = store.emailTokens.findIndex((item) => item.token === token)
-          if (userIndex >= 0) store.users.splice(userIndex, 1)
+          if (!existing) {
+            const userIndex = store.users.indexOf(user)
+            if (userIndex >= 0) store.users.splice(userIndex, 1)
+          }
+          const tokenIndex = store.emailTokens.findIndex((item) => item.token === verification.token)
           if (tokenIndex >= 0) store.emailTokens.splice(tokenIndex, 1)
           await persistStore(store).catch(() => undefined)
           throw new AppError('VALIDATION_ERROR', 'Verification email could not be sent', 502)
@@ -111,7 +117,9 @@ export async function createApp(options: CreateAppOptions = {}) {
         set.status = 201
         return {
           userId: user.id,
-          verificationEmailSent: true
+          email: user.email,
+          verificationEmailSent: true,
+          resendAvailableAt: verification.resendAvailableAt.toISOString()
         }
       },
       {
@@ -123,12 +131,51 @@ export async function createApp(options: CreateAppOptions = {}) {
       }
     )
     .post(
+      '/auth/register/resend',
+      async ({ body, set }) => {
+        const email = body.email.trim().toLowerCase()
+        const user = store.users.find((item) => item.email === email)
+        if (!user) throw notFound('Account was not registered')
+        if (user.emailVerified) {
+          set.status = 409
+          return { code: 'VALIDATION_ERROR', message: 'Email is already verified' }
+        }
+
+        const verification = createEmailVerification(store, user)
+        if ('error' in verification) {
+          set.status = verification.status
+          return { code: 'VALIDATION_ERROR', message: verification.error, resendAvailableAt: verification.resendAvailableAt.toISOString() }
+        }
+
+        await persistStore(store)
+        await emailSender.sendVerificationEmail({
+          to: user.email,
+          name: user.name,
+          code: verification.code,
+          expiresAt: verification.expiresAt
+        })
+
+        return {
+          email: user.email,
+          verificationEmailSent: true,
+          resendAvailableAt: verification.resendAvailableAt.toISOString()
+        }
+      },
+      {
+        body: t.Object({
+          email: t.String({ format: 'email' })
+        })
+      }
+    )
+    .post(
       '/auth/verify-email',
       async ({ body }) => {
-        const token = store.emailTokens.find((item) => item.token === body.token)
-        if (!token || token.usedAt || token.expiresAt < now()) throw notFound('Verification token is invalid or expired')
+        const email = body.email.trim().toLowerCase()
+        const user = requireEntity(store.users.find((item) => item.email === email), 'User not found')
+        const codeHash = emailVerificationCodeHash(email, body.code)
+        const token = store.emailTokens.find((item) => item.userId === user.id && item.token === codeHash)
+        if (!token || token.usedAt || token.expiresAt < now()) throw notFound('Verification code is invalid or expired')
 
-        const user = requireEntity(store.users.find((item) => item.id === token.userId), 'User not found')
         user.emailVerified = true
         token.usedAt = now()
         await persistStore(store)
@@ -137,7 +184,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       },
       {
         body: t.Object({
-          token: t.String()
+          email: t.String({ format: 'email' }),
+          code: t.String({ minLength: 6, maxLength: 6 })
         })
       }
     )
@@ -149,6 +197,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           throw new AppError('AUTH_REQUIRED', 'Invalid email or password', 401)
         }
         if (user.blocked) throw new AppError('AUTH_REQUIRED', 'User is blocked', 403)
+        if (!user.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED', 'Verify email before login', 403)
 
         const token = signToken(`${user.id}:${Date.now()}`)
         store.sessions.set(token, user.id)
@@ -782,11 +831,60 @@ function paymentSignature(headers: Record<string, string | undefined>): string |
   return headers['x-signature'] ?? headers['x-payment-signature'] ?? headers['x-platega-signature'] ?? headers['x-tbank-signature']
 }
 
-function emailVerificationUrl(token: string): string {
-  const base = process.env.EMAIL_VERIFICATION_BASE_URL ?? process.env.APP_PUBLIC_URL ?? 'http://localhost:3000'
-  const url = new URL('/', base.endsWith('/') ? base : `${base}/`)
-  url.searchParams.set('verificationToken', token)
-  return url.toString()
+function createEmailVerification(
+  store: AppStore,
+  user: User
+): { token: string; code: string; expiresAt: Date; resendAvailableAt: Date } | { error: string; status: number; resendAvailableAt: Date } {
+  const current = now()
+  const existing = store.emailTokens.find((item) => item.userId === user.id && !item.usedAt && item.expiresAt > current)
+  if (existing && existing.resendAvailableAt > current) {
+    return {
+      status: 429,
+      error: 'Verification code can be resent later',
+      resendAvailableAt: existing.resendAvailableAt
+    }
+  }
+
+  const code = emailVerificationCode()
+  const expiresAt = new Date(current.getTime() + emailVerificationTtlMinutes() * 60_000)
+  const resendAvailableAt = new Date(current.getTime() + emailVerificationResendCooldownSeconds() * 1000)
+  const token = emailVerificationCodeHash(user.email, code)
+  store.emailTokens
+    .filter((item) => item.userId === user.id && !item.usedAt)
+    .forEach((item) => {
+      item.usedAt = current
+    })
+  store.emailTokens.push({
+    token,
+    userId: user.id,
+    expiresAt,
+    resendAvailableAt,
+    usedAt: null
+  })
+
+  return { token, code, expiresAt, resendAvailableAt }
+}
+
+function emailVerificationCode(): string {
+  const value = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0
+  return String(value % 1_000_000).padStart(6, '0')
+}
+
+function emailVerificationCodeHash(email: string, code: string): string {
+  const secret = process.env.EMAIL_VERIFICATION_SECRET ?? process.env.JWT_ACCESS_SECRET ?? 'dev-email-verification-secret'
+  return createHmac('sha256', secret)
+    .update(`${email.trim().toLowerCase()}:${code.trim()}`)
+    .digest('base64url')
+}
+
+function emailVerificationTtlMinutes(): number {
+  const value = Number(process.env.EMAIL_VERIFICATION_TTL_MIN ?? 15)
+  return Number.isFinite(value) && value > 0 ? value : 15
+}
+
+function emailVerificationResendCooldownSeconds(): number {
+  const value = Number(process.env.EMAIL_VERIFICATION_RESEND_COOLDOWN_SEC ?? 60)
+  return Number.isFinite(value) && value > 0 ? value : 60
 }
 
 function grantSubscription(store: AppStore, userId: string, plan: Plan, adminId: string | null): Subscription {

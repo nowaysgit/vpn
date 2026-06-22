@@ -1,16 +1,20 @@
 <script setup lang="ts">
-import { Copy, CreditCard, Link2, LogIn, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, Copy, CreditCard, Link2, LogIn, Plus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-vue-next'
 import type { CustomerDevice, CustomerProfile, PaymentInvoice, PublicPlan } from '@vpn/api-contract'
 import { CustomerApi } from '~/lib/api'
 import { dateLabel, rub } from '~/lib/format'
 
 const config = useRuntimeConfig()
-const route = useRoute()
 const api = new CustomerApi(config.public.apiBaseUrl)
 
 const email = ref('user@example.com')
 const name = ref('User')
 const password = ref('password123')
+const passwordConfirm = ref('password123')
+const verificationCode = ref('')
+const verificationStep = ref(false)
+const resendAvailableAt = ref('')
+const resendNow = ref(Date.now())
 const authToken = ref('')
 const profile = ref<CustomerProfile | null>(null)
 const plans = ref<PublicPlan[]>([])
@@ -40,23 +44,41 @@ onMounted(async () => {
     authToken.value = window.localStorage.getItem('vpn.customer.token') ?? ''
   }
 
-  const token = queryValue(route.query.verificationToken)
-  if (token) await verifyEmailToken(token)
   if (authToken.value) await refreshCabinet()
+})
+
+let resendTimer: ReturnType<typeof setTimeout> | undefined
+
+watch(resendAvailableAt, scheduleResendUnlock)
+onBeforeUnmount(() => {
+  if (resendTimer) clearTimeout(resendTimer)
 })
 
 async function register() {
   await run(async () => {
-    await api.register({ email: email.value, name: name.value, password: password.value })
-    notice.value = 'Account created. Check your email for the verification link.'
+    if (password.value !== passwordConfirm.value) throw new Error('Passwords do not match')
+    const result = await api.register({ email: email.value, name: name.value, password: password.value })
+    email.value = result.email
+    resendAvailableAt.value = result.resendAvailableAt
+    verificationStep.value = true
+    notice.value = 'Account created. Check your email for the verification code.'
   })
 }
 
-async function verifyEmailToken(token: string) {
+async function resendRegistration() {
   await run(async () => {
-    await api.verifyEmail(token)
-    if (import.meta.client) window.history.replaceState({}, document.title, window.location.pathname)
-    notice.value = 'Email verified.'
+    const result = await api.resendRegistration(email.value)
+    resendAvailableAt.value = result.resendAvailableAt
+    notice.value = 'Verification code sent.'
+  })
+}
+
+async function verifyEmailCode() {
+  await run(async () => {
+    await api.verifyEmail(email.value, verificationCode.value)
+    verificationCode.value = ''
+    verificationStep.value = false
+    notice.value = 'Email verified. You can sign in with your password.'
   })
 }
 
@@ -151,9 +173,21 @@ async function run(action: () => Promise<void>) {
   }
 }
 
-function queryValue(value: unknown): string {
-  if (Array.isArray(value)) return typeof value[0] === 'string' ? value[0] : ''
-  return typeof value === 'string' ? value : ''
+const resendLocked = computed(() => {
+  if (!resendAvailableAt.value) return false
+  return new Date(resendAvailableAt.value).getTime() > resendNow.value
+})
+
+function scheduleResendUnlock() {
+  if (resendTimer) clearTimeout(resendTimer)
+  resendNow.value = Date.now()
+  const unlockAt = resendAvailableAt.value ? new Date(resendAvailableAt.value).getTime() : 0
+  const delay = Math.max(0, unlockAt - resendNow.value)
+  if (delay > 0) {
+    resendTimer = setTimeout(() => {
+      resendNow.value = Date.now()
+    }, delay + 100)
+  }
 }
 </script>
 
@@ -176,28 +210,58 @@ function queryValue(value: unknown): string {
       <aside class="panel stack">
         <section class="stack" aria-labelledby="auth-title">
           <h1 id="auth-title" class="title">Account</h1>
-          <label class="label">
-            Email
-            <input v-model="email" class="input" data-testid="email" autocomplete="email">
-          </label>
-          <label class="label">
-            Name
-            <input v-model="name" class="input" data-testid="name" autocomplete="name">
-          </label>
-          <label class="label">
-            Password
-            <input v-model="password" class="input" data-testid="password" type="password" autocomplete="current-password">
-          </label>
-          <div class="button-row">
-            <button class="secondary" data-testid="register" :disabled="loading" @click="register">
-              <Plus :size="16" />
-              Register
-            </button>
-            <button class="primary" data-testid="login" :disabled="loading" @click="login">
-              <LogIn :size="16" />
-              Login
-            </button>
-          </div>
+          <template v-if="verificationStep">
+            <label class="label">
+              Email
+              <input v-model="email" class="input" data-testid="email" autocomplete="email" disabled>
+            </label>
+            <label class="label">
+              Verification code
+              <input v-model="verificationCode" class="input" data-testid="verification-code" inputmode="numeric" autocomplete="one-time-code">
+            </label>
+            <div class="button-row">
+              <button class="secondary" data-testid="back-to-register" :disabled="loading" @click="verificationStep = false">
+                <ArrowLeft :size="16" />
+                Back
+              </button>
+              <button class="secondary" data-testid="resend-registration" :disabled="loading || resendLocked" @click="resendRegistration">
+                <RefreshCw :size="16" />
+                Resend
+              </button>
+              <button class="primary" data-testid="verify-email" :disabled="loading" @click="verifyEmailCode">
+                <ShieldCheck :size="16" />
+                Confirm
+              </button>
+            </div>
+          </template>
+          <template v-else>
+            <label class="label">
+              Email
+              <input v-model="email" class="input" data-testid="email" autocomplete="email">
+            </label>
+            <label class="label">
+              Name
+              <input v-model="name" class="input" data-testid="name" autocomplete="name">
+            </label>
+            <label class="label">
+              Password
+              <input v-model="password" class="input" data-testid="password" type="password" autocomplete="current-password">
+            </label>
+            <label class="label">
+              Repeat password
+              <input v-model="passwordConfirm" class="input" data-testid="password-confirm" type="password" autocomplete="new-password">
+            </label>
+            <div class="button-row">
+              <button class="secondary" data-testid="register" :disabled="loading" @click="register">
+                <Plus :size="16" />
+                Register
+              </button>
+              <button class="primary" data-testid="login" :disabled="loading" @click="login">
+                <LogIn :size="16" />
+                Login
+              </button>
+            </div>
+          </template>
         </section>
 
         <section class="stack" aria-labelledby="payment-title">

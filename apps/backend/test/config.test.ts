@@ -38,6 +38,7 @@ describe('production config guard', () => {
     process.env.EMAIL_SMTP_SECURE = 'true'
     process.env.EMAIL_SMTP_USER = 'robot@example.com'
     process.env.EMAIL_SMTP_PASSWORD = 'yandex-app-password'
+    process.env.EMAIL_VERIFICATION_SECRET = 'prod-email-verification-secret'
     process.env.MARZBAN_BASE_URL = 'https://marzban.local'
     process.env.MARZBAN_USERNAME = 'marzban-api'
     process.env.MARZBAN_PASSWORD = 'marzban-secret'
