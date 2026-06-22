@@ -45,6 +45,7 @@
     "eslint-plugin-vue": "latest",
     "typescript": "latest",
     "typescript-eslint": "latest",
+    "vue-router": "^5.1.0",
     "vue-tsc": "latest"
   },
   "trustedDependencies": [

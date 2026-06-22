@@ -8,6 +8,7 @@ export default [
       '**/.nuxt/**',
       '**/.agents/**',
       '**/.output/**',
+      '**/components/ui/**',
       '**/coverage/**',
       '**/dist/**',
       '**/node_modules/**',

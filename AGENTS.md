@@ -160,9 +160,30 @@ Backend является source of truth. Marzban/Xray и внешний VPN fal
 Dev-окружение управляется платформой my-core через `docker-compose.dev.yml`.
 Для UI-тестов используй `$AGENT_DEV_RUNTIME_URL`, если переменная доступна; иначе локальные dev URL.
 
+### Локальный dev-режим
+
+- **Фронтенд запускай локально через Bun**, а не в Docker:
+
+  ```bash
+  bun install
+  bun run --cwd apps/customer-web dev
+  bun run --cwd apps/admin-web dev
+  ```
+
+  Лендинг и клиентский кабинет доступны на `http://127.0.0.1:3000`, admin-web — на `http://127.0.0.1:3002`.
+
+- **Backend и PostgreSQL запускай через Docker Compose**:
+
+  ```bash
+  docker compose -f docker-compose.dev.yml up -d postgres api
+  docker compose -f docker-compose.dev.yml logs -f api
+  ```
+
+  Не запускай `customer-web` в Docker в локальном dev-режиме — он должен работать из локального процесса Bun.
+
 ## Дизайн
 
-Перед изменениями UI читать `DESIGN.md`. Интерфейс должен быть рабочим продуктовым экраном, не лендингом.
+Перед любыми изменениями UI обязательно читать `DESIGN.md`. Любая страница, компонент и состояние должны соблюдать его токены, типографику, отступы, адаптивность, доступность и правила использования Spotify Green. Не хардкодить цвета, тени и типографику в компонентах — использовать семантические Tailwind-токены из дизайн-системы.
 
 ## graphify
 
@@ -176,3 +197,13 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+## UI-компоненты и стили
+
+- **Сначала shadcn-vue.** Перед созданием любого UI-элемента проверь `app/components/ui`. Если подходящий компонент shadcn-vue существует, используй его вместо локального аналога: `Button`, `Card`, `Input`, `Select`, `Field`, `Table`, `Badge`, `Alert`, `Sheet`, `Dialog`, `Tabs`, `Separator` и т. п.
+- Компоненты `app/components/ui` добавляй и обновляй только через shadcn-vue CLI. Не копируй их исходники вручную и не создавай дубликаты кнопок, инпутов, карточек, статусов, модалок, таблиц или навигационных примитивов вне этой папки.
+- `app/components/ui` — общий UI-слой конкретного приложения. Продуктовые, составные секции декомпозируй в `app/components/<feature>/`; они должны собирать интерфейс из `components/ui`, а не реализовывать свои базовые контролы.
+- Используй Tailwind CSS для всех стилей страниц и продуктовых компонентов. Применяй mobile-first breakpoints и семантические классы токенов: `bg-primary`, `text-muted-foreground`, `border-border`, `bg-card`, `text-destructive` и т. п.
+- `app/assets/css/main.css` содержит только импорты Tailwind/shadcn-vue, CSS design tokens, настройку темы и базовый reset. В нём запрещены стили конкретных страниц, секций и локальных компонентов.
+- Не использовать самописные глобальные классы наподобие `.button`, `.card`, `.panel`, `.input`, `.status`, `.page` или `.topbar`. Удаляй локальные аналоги при миграции на shadcn-vue.
+- Перед завершением UI-изменений проверяй desktop и mobile в реальном браузере, а также запускай релевантные `bun`-проверки.

@@ -3,7 +3,11 @@ WORKDIR /app
 
 COPY package.json bun.lock ./
 COPY tsconfig.base.json eslint.config.js ./
+COPY apps/admin-web/package.json apps/admin-web/package.json
 COPY apps/backend/package.json apps/backend/package.json
+COPY apps/customer-web/package.json apps/customer-web/package.json
+COPY apps/provisioning-worker/package.json apps/provisioning-worker/package.json
+COPY apps/telegram-bot/package.json apps/telegram-bot/package.json
 COPY libs/api-contract/package.json libs/api-contract/package.json
 COPY libs/provider-contract/package.json libs/provider-contract/package.json
 RUN bun install --frozen-lockfile

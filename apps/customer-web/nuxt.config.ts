@@ -1,7 +1,13 @@
+import tailwindcss from '@tailwindcss/vite'
+
 export default defineNuxtConfig({
   ssr: false,
   devtools: { enabled: false },
+  components: false,
   css: ['~/assets/css/main.css'],
+  vite: {
+    plugins: [tailwindcss()]
+  },
   runtimeConfig: {
     public: {
       apiBaseUrl: process.env.API_BASE_URL ?? 'http://localhost:3001'
@@ -9,7 +15,7 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
-      title: 'VPN Cabinet',
+      title: 'VPN — приватный доступ без лишнего шума',
       meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }]
     }
   },

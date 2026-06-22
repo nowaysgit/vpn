@@ -1,8 +1,40 @@
 <script setup lang="ts">
-import { Ban, FileClock, RefreshCw, Save, ShieldCheck } from 'lucide-vue-next'
+import { BanIcon, FileClockIcon, RefreshCwIcon, SaveIcon, ShieldCheckIcon, SignalIcon } from '@lucide/vue'
 import type { AdminAuditEntry, AdminUserListItem, PublicPlan } from '@vpn/api-contract'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import {
+  NavigationMenu,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  navigationMenuTriggerStyle
+} from '@/components/ui/navigation-menu'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table'
+import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 import { AdminApi, type ServerRow } from '~/lib/api'
 import { compactDate } from '~/lib/format'
+
+const adminSections = [
+  { label: 'Clients', to: '#clients', active: true },
+  { label: 'Operations', to: '#operations' },
+  { label: 'Servers', to: '#servers' },
+  { label: 'Audit', to: '#audit' }
+]
 
 const config = useRuntimeConfig()
 const api = new AdminApi(config.public.apiBaseUrl)
@@ -23,6 +55,10 @@ const loading = ref(false)
 
 const selectedUser = computed(() => users.value.find((user) => user.id === selectedUserId.value) ?? null)
 
+watch(selectedUser, (user) => {
+  notes.value = user?.notes ?? ''
+})
+
 onMounted(async () => {
   plans.value = await api.plans()
   selectedPlanId.value = plans.value[0]?.id ?? 'plan_starter'
@@ -42,10 +78,18 @@ async function login() {
 
 async function refreshAdmin() {
   if (!token.value) return
-  users.value = await api.users(token.value)
-  audit.value = await api.audit(token.value)
-  servers.value = await api.servers(token.value)
-  selectedUserId.value = users.value[0]?.id ?? ''
+
+  const previousUserId = selectedUserId.value
+  const [userRows, auditRows, serverRows] = await Promise.all([
+    api.users(token.value),
+    api.audit(token.value),
+    api.servers(token.value)
+  ])
+
+  users.value = userRows
+  audit.value = auditRows
+  servers.value = serverRows
+  selectedUserId.value = userRows.some((user) => user.id === previousUserId) ? previousUserId : userRows[0]?.id ?? ''
 }
 
 async function grant() {
@@ -75,6 +119,10 @@ async function saveNotes() {
   })
 }
 
+function selectUser(user: AdminUserListItem) {
+  selectedUserId.value = user.id
+}
+
 async function run(action: () => Promise<void>) {
   loading.value = true
   error.value = ''
@@ -91,178 +139,287 @@ async function run(action: () => Promise<void>) {
 </script>
 
 <template>
-  <main class="page">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark">A</span>
-        <span>VPN Admin</span>
+  <main class="min-h-screen bg-muted/30">
+    <header class="sticky top-0 border-b bg-background/95 backdrop-blur">
+      <div class="mx-auto flex min-h-20 w-[min(1400px,calc(100%-2rem))] items-center gap-6">
+        <NuxtLink to="/" class="flex items-center gap-2.5 text-lg font-extrabold tracking-tight">
+          <span class="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <SignalIcon class="size-[18px]" />
+          </span>
+          VPN Admin
+        </NuxtLink>
+
+        <NavigationMenu :viewport="false" class="ml-auto hidden lg:flex" aria-label="Admin sections">
+          <NavigationMenuList class="gap-1">
+            <NavigationMenuItem v-for="section in adminSections" :key="section.to">
+              <NavigationMenuLink
+                as-child
+                :active="section.active"
+                :class="cn(navigationMenuTriggerStyle(), section.active && 'border-b-2 border-primary text-foreground')"
+              >
+                <NuxtLink :to="section.to">{{ section.label }}</NuxtLink>
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+          </NavigationMenuList>
+        </NavigationMenu>
+
+        <Badge :variant="token ? 'default' : 'secondary'" class="ml-auto lg:ml-0">
+          {{ token ? 'Session active' : 'Login required' }}
+        </Badge>
       </div>
-      <nav class="tabs" aria-label="Admin sections">
-        <span>Clients</span>
-        <span>Subscriptions</span>
-        <span>Payments</span>
-        <span>Servers</span>
-        <span>Audit</span>
-      </nav>
     </header>
 
-    <div class="shell">
-      <aside class="panel stack">
-        <section class="stack">
-          <h1 class="title">Admin access</h1>
-          <label class="label">
-            Email
-            <input v-model="email" class="input" data-testid="admin-email">
-          </label>
-          <label class="label">
-            Password
-            <input v-model="password" class="input" data-testid="admin-password" type="password">
-          </label>
-          <button class="primary" data-testid="admin-login" :disabled="loading" @click="login">
-            <ShieldCheck :size="16" />
-            Login
-          </button>
-        </section>
+    <div class="mx-auto grid w-[min(1400px,calc(100%-2rem))] gap-6 py-6 xl:grid-cols-[360px_1fr]">
+      <aside class="flex flex-col gap-6">
+        <Card id="access">
+          <CardHeader>
+            <CardTitle>Admin access</CardTitle>
+            <CardDescription>Войдите, чтобы управлять клиентами, тарифами и серверами.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FieldGroup>
+              <Field>
+                <FieldLabel for="admin-email">Email</FieldLabel>
+                <Input id="admin-email" v-model="email" data-testid="admin-email" autocomplete="email" />
+              </Field>
+              <Field>
+                <FieldLabel for="admin-password">Password</FieldLabel>
+                <Input
+                  id="admin-password"
+                  v-model="password"
+                  data-testid="admin-password"
+                  type="password"
+                  autocomplete="current-password"
+                />
+              </Field>
+              <Button data-testid="admin-login" :disabled="loading" @click="login">
+                <ShieldCheckIcon data-icon="inline-start" />
+                Login
+              </Button>
+            </FieldGroup>
+          </CardContent>
+        </Card>
 
-        <section class="stack">
-          <h2 class="title">Manual operations</h2>
-          <label class="label">
-            Client
-            <select v-model="selectedUserId" class="input" data-testid="admin-user-select">
-              <option v-for="user in users" :key="user.id" :value="user.id">
-                {{ user.email }}
-              </option>
-            </select>
-          </label>
-          <label class="label">
-            Plan
-            <select v-model="selectedPlanId" class="input" data-testid="admin-plan-select">
-              <option v-for="plan in plans" :key="plan.id" :value="plan.id">
-                {{ plan.title }}
-              </option>
-            </select>
-          </label>
-          <div class="button-row">
-            <button class="primary" data-testid="admin-grant" :disabled="!selectedUserId" @click="grant">Grant</button>
-            <button class="danger" data-testid="admin-block" :disabled="!selectedUserId" @click="block">
-              <Ban :size="16" />
-              Block
-            </button>
-          </div>
-          <label class="label">
-            Client notes
-            <textarea v-model="notes" class="input" rows="4" data-testid="admin-notes" />
-          </label>
-          <button class="secondary" data-testid="admin-save-notes" :disabled="!selectedUserId" @click="saveNotes">
-            <Save :size="16" />
-            Save notes
-          </button>
-        </section>
+        <Card id="operations">
+          <CardHeader>
+            <CardTitle>Manual operations</CardTitle>
+            <CardDescription>
+              {{ selectedUser ? selectedUser.email : 'Выберите клиента после входа.' }}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FieldGroup>
+              <Field>
+                <FieldLabel for="admin-user-select">Client</FieldLabel>
+                <Select v-model="selectedUserId">
+                  <SelectTrigger id="admin-user-select" data-testid="admin-user-select" class="w-full">
+                    <SelectValue placeholder="Выберите клиента" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem v-for="user in users" :key="user.id" :value="user.id">
+                        {{ user.email }}
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field>
+                <FieldLabel for="admin-plan-select">Plan</FieldLabel>
+                <Select v-model="selectedPlanId">
+                  <SelectTrigger id="admin-plan-select" data-testid="admin-plan-select" class="w-full">
+                    <SelectValue placeholder="Выберите тариф" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem v-for="plan in plans" :key="plan.id" :value="plan.id">
+                        {{ plan.title }}
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field>
+                <FieldLabel>Subscription actions</FieldLabel>
+                <FieldDescription>Grant выдаёт выбранный тариф, Block отключает клиента.</FieldDescription>
+                <div class="flex flex-col gap-2 sm:flex-row">
+                  <Button data-testid="admin-grant" :disabled="!selectedUserId" @click="grant">
+                    <ShieldCheckIcon data-icon="inline-start" />
+                    Grant
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    data-testid="admin-block"
+                    :disabled="!selectedUserId"
+                    @click="block"
+                  >
+                    <BanIcon data-icon="inline-start" />
+                    Block
+                  </Button>
+                </div>
+              </Field>
+
+              <Field>
+                <FieldLabel for="admin-notes">Client notes</FieldLabel>
+                <Textarea id="admin-notes" v-model="notes" rows="4" data-testid="admin-notes" />
+              </Field>
+
+              <Button variant="outline" data-testid="admin-save-notes" :disabled="!selectedUserId" @click="saveNotes">
+                <SaveIcon data-icon="inline-start" />
+                Save notes
+              </Button>
+            </FieldGroup>
+          </CardContent>
+        </Card>
       </aside>
 
-      <section class="stack">
-        <div v-if="error" class="alert" data-testid="admin-error">{{ error }}</div>
-        <div v-if="notice" class="status active" data-testid="admin-notice">{{ notice }}</div>
+      <section class="flex min-w-0 flex-col gap-6">
+        <Alert v-if="error" variant="destructive" data-testid="admin-error">
+          <AlertTitle>Не удалось выполнить действие</AlertTitle>
+          <AlertDescription>{{ error }}</AlertDescription>
+        </Alert>
+        <Alert v-if="notice" data-testid="admin-notice">
+          <AlertTitle>Готово</AlertTitle>
+          <AlertDescription>{{ notice }}</AlertDescription>
+        </Alert>
 
-        <section class="grid">
-          <article class="card stack">
-            <span class="muted">Clients</span>
-            <span class="metric">{{ users.length }}</span>
-          </article>
-          <article class="card stack">
-            <span class="muted">Servers</span>
-            <span class="metric">{{ servers.length }}</span>
-          </article>
-          <article class="card stack">
-            <span class="muted">Selected</span>
-            <span class="metric">{{ selectedUser?.subscriptionStatus ?? 'none' }}</span>
-          </article>
-        </section>
+        <div class="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader>
+              <CardDescription>Clients</CardDescription>
+              <CardTitle class="text-3xl">{{ users.length }}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Servers</CardDescription>
+              <CardTitle class="text-3xl">{{ servers.length }}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Selected</CardDescription>
+              <CardTitle class="text-3xl">{{ selectedUser?.subscriptionStatus ?? 'none' }}</CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
 
-        <section class="panel stack">
-          <div class="button-row">
-            <h2 class="title">Clients</h2>
-            <button class="secondary" data-testid="admin-refresh" :disabled="!token" @click="refreshAdmin">
-              <RefreshCw :size="16" />
-              Refresh
-            </button>
-          </div>
-          <table class="table" data-testid="admin-users">
-            <thead>
-              <tr>
-                <th>Email</th>
-                <th>Status</th>
-                <th>Ends</th>
-                <th>Traffic</th>
-                <th>Devices</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="user in users" :key="user.id" @click="selectedUserId = user.id">
-                <td>{{ user.email }}</td>
-                <td>
-                  <span :class="['status', user.subscriptionStatus === 'active' ? 'active' : 'warning']">
-                    {{ user.subscriptionStatus }}
-                  </span>
-                </td>
-                <td>{{ compactDate(user.subscriptionEndsAt) }}</td>
-                <td>{{ user.trafficUsedGb }}/{{ user.trafficLimitGb }} GB</td>
-                <td>{{ user.deviceCount }}</td>
-                <td>{{ user.notes ?? 'none' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
+        <Card id="clients">
+          <CardHeader class="gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>Clients</CardTitle>
+              <CardDescription>Клик по строке выбирает клиента для ручных операций.</CardDescription>
+            </div>
+            <CardAction>
+              <Button variant="outline" data-testid="admin-refresh" :disabled="!token" @click="refreshAdmin">
+                <RefreshCwIcon data-icon="inline-start" />
+                Refresh
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <Table data-testid="admin-users">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Ends</TableHead>
+                  <TableHead>Traffic</TableHead>
+                  <TableHead>Devices</TableHead>
+                  <TableHead>Notes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableEmpty v-if="!users.length" :colspan="6">Нет клиентов для отображения.</TableEmpty>
+                <TableRow
+                  v-for="user in users"
+                  :key="user.id"
+                  :data-state="selectedUserId === user.id ? 'selected' : undefined"
+                  class="cursor-pointer"
+                  @click="selectUser(user)"
+                >
+                  <TableCell class="font-medium">{{ user.email }}</TableCell>
+                  <TableCell>
+                    <Badge :variant="user.subscriptionStatus === 'active' ? 'default' : 'secondary'">
+                      {{ user.subscriptionStatus }}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{{ compactDate(user.subscriptionEndsAt) }}</TableCell>
+                  <TableCell>{{ user.trafficUsedGb }}/{{ user.trafficLimitGb }} GB</TableCell>
+                  <TableCell>{{ user.deviceCount }}</TableCell>
+                  <TableCell class="max-w-56 truncate">{{ user.notes ?? 'none' }}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
 
-        <section class="panel stack">
-          <h2 class="title">Servers</h2>
-          <table class="table" data-testid="admin-servers">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Provider</th>
-                <th>Location</th>
-                <th>Protocols</th>
-                <th>User visible</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="server in servers" :key="server.id">
-                <td>{{ server.name }}</td>
-                <td>{{ server.provider }}</td>
-                <td>{{ server.locationCode }}</td>
-                <td>{{ server.protocols.join(', ') }}</td>
-                <td>{{ server.visibleToCustomer ? 'yes' : 'no' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
+        <Card id="servers">
+          <CardHeader>
+            <CardTitle>Servers</CardTitle>
+            <CardDescription>Провайдеры и протоколы, доступные клиентам.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table data-testid="admin-servers">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Provider</TableHead>
+                  <TableHead>Location</TableHead>
+                  <TableHead>Protocols</TableHead>
+                  <TableHead>User visible</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableEmpty v-if="!servers.length" :colspan="5">Нет серверов для отображения.</TableEmpty>
+                <TableRow v-for="server in servers" :key="server.id">
+                  <TableCell class="font-medium">{{ server.name }}</TableCell>
+                  <TableCell>{{ server.provider }}</TableCell>
+                  <TableCell>{{ server.locationCode }}</TableCell>
+                  <TableCell>{{ server.protocols.join(', ') }}</TableCell>
+                  <TableCell>
+                    <Badge :variant="server.visibleToCustomer ? 'default' : 'secondary'">
+                      {{ server.visibleToCustomer ? 'yes' : 'no' }}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
 
-        <section class="panel stack">
-          <h2 class="title">
-            <FileClock :size="18" />
-            Audit log
-          </h2>
-          <table class="table" data-testid="admin-audit">
-            <thead>
-              <tr>
-                <th>Actor</th>
-                <th>Action</th>
-                <th>Target</th>
-                <th>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="entry in audit" :key="entry.id">
-                <td>{{ entry.actorEmail }}</td>
-                <td>{{ entry.action }}</td>
-                <td>{{ entry.targetType }}: {{ entry.targetId }}</td>
-                <td>{{ compactDate(entry.createdAt) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
+        <Card id="audit">
+          <CardHeader>
+            <CardTitle class="flex items-center gap-2">
+              <FileClockIcon class="size-5 text-success" />
+              Audit log
+            </CardTitle>
+            <CardDescription>Последние административные действия.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table data-testid="admin-audit">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Actor</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Target</TableHead>
+                  <TableHead>Time</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableEmpty v-if="!audit.length" :colspan="4">Audit log пока пуст.</TableEmpty>
+                <TableRow v-for="entry in audit" :key="entry.id">
+                  <TableCell class="font-medium">{{ entry.actorEmail }}</TableCell>
+                  <TableCell>{{ entry.action }}</TableCell>
+                  <TableCell>{{ entry.targetType }}: {{ entry.targetId }}</TableCell>
+                  <TableCell>{{ compactDate(entry.createdAt) }}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       </section>
     </div>
   </main>

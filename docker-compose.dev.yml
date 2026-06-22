@@ -2,15 +2,15 @@ name: vpn-dev
 
 include:
   - path: apps/backend/docker-compose.yml
-    project_directory: .
+    project_directory: apps/backend
   - path: apps/customer-web/docker-compose.yml
-    project_directory: .
+    project_directory: apps/customer-web
   - path: apps/admin-web/docker-compose.yml
-    project_directory: .
+    project_directory: apps/admin-web
   - path: apps/telegram-bot/docker-compose.yml
-    project_directory: .
+    project_directory: apps/telegram-bot
   - path: apps/provisioning-worker/docker-compose.yml
-    project_directory: .
+    project_directory: apps/provisioning-worker
 
 services:
   postgres:

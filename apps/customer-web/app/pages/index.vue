@@ -1,374 +1,136 @@
 <script setup lang="ts">
-import { ArrowLeft, Copy, CreditCard, Link2, LogIn, Plus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-vue-next'
-import type { CustomerDevice, CustomerProfile, PaymentInvoice, PublicPlan } from '@vpn/api-contract'
-import { CustomerApi } from '~/lib/api'
-import { dateLabel, rub } from '~/lib/format'
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  Globe2Icon,
+  LaptopIcon,
+  LockKeyholeIcon,
+  ShieldCheckIcon,
+  SmartphoneIcon,
+  ZapIcon
+} from '@lucide/vue'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
+import MarketingHeader from '@/components/landing/MarketingHeader.vue'
+import PlanCard from '@/components/landing/PlanCard.vue'
 
-const config = useRuntimeConfig()
-const api = new CustomerApi(config.public.apiBaseUrl)
+const plans = [
+  { name: 'Старт', price: '199 ₽', detail: 'Для одного устройства', devices: '1 устройство' },
+  { name: 'Свобода', price: '349 ₽', detail: 'На каждый день', devices: 'До 5 устройств', featured: true },
+  { name: 'Команда', price: '699 ₽', detail: 'Для близких и команды', devices: 'До 10 устройств' }
+]
 
-const email = ref('user@example.com')
-const name = ref('User')
-const password = ref('password123')
-const passwordConfirm = ref('password123')
-const verificationCode = ref('')
-const verificationStep = ref(false)
-const resendAvailableAt = ref('')
-const resendNow = ref(Date.now())
-const authToken = ref('')
-const profile = ref<CustomerProfile | null>(null)
-const plans = ref<PublicPlan[]>([])
-const devices = ref<CustomerDevice[]>([])
-const selectedPlanId = ref('plan_starter')
-const invoice = ref<PaymentInvoice | null>(null)
-const telegramLinkToken = ref('')
-const deviceLabel = ref('Laptop')
-const replaceDeviceId = ref('')
-const error = ref('')
-const notice = ref('')
-const loading = ref(false)
-
-const subscriptionUrl = computed(() => {
-  if (!profile.value) return ''
-  const apiBase = config.public.apiBaseUrl.replace(/\/$/, '')
-  return `${apiBase}${profile.value.subscriptionUrl}`
-})
-
-const replacementNeeded = computed(() => replaceDeviceId.value.length > 0)
-
-onMounted(async () => {
-  plans.value = await api.plans()
-  selectedPlanId.value = plans.value[0]?.id ?? 'plan_starter'
-
-  if (import.meta.client) {
-    authToken.value = window.localStorage.getItem('vpn.customer.token') ?? ''
-  }
-
-  if (authToken.value) await refreshCabinet()
-})
-
-let resendTimer: ReturnType<typeof setTimeout> | undefined
-
-watch(resendAvailableAt, scheduleResendUnlock)
-onBeforeUnmount(() => {
-  if (resendTimer) clearTimeout(resendTimer)
-})
-
-async function register() {
-  await run(async () => {
-    if (password.value !== passwordConfirm.value) throw new Error('Passwords do not match')
-    const result = await api.register({ email: email.value, name: name.value, password: password.value })
-    email.value = result.email
-    resendAvailableAt.value = result.resendAvailableAt
-    verificationStep.value = true
-    notice.value = 'Account created. Check your email for the verification code.'
-  })
-}
-
-async function resendRegistration() {
-  await run(async () => {
-    const result = await api.resendRegistration(email.value)
-    resendAvailableAt.value = result.resendAvailableAt
-    notice.value = 'Verification code sent.'
-  })
-}
-
-async function verifyEmailCode() {
-  await run(async () => {
-    await api.verifyEmail(email.value, verificationCode.value)
-    verificationCode.value = ''
-    verificationStep.value = false
-    notice.value = 'Email verified. You can sign in with your password.'
-  })
-}
-
-async function login() {
-  await run(async () => {
-    const result = await api.login({ email: email.value, password: password.value })
-    authToken.value = result.token
-    if (import.meta.client) window.localStorage.setItem('vpn.customer.token', result.token)
-    await refreshCabinet()
-  })
-}
-
-async function createPayment() {
-  await run(async () => {
-    invoice.value = await api.createPayment(authToken.value, selectedPlanId.value)
-    notice.value = 'Payment invoice created.'
-  })
-}
-
-async function sandboxPaid() {
-  if (!invoice.value) return
-
-  await run(async () => {
-    if (!invoice.value) return
-    await api.sandboxMarkPaid(invoice.value)
-    await refreshCabinet()
-    notice.value = 'Sandbox payment marked as paid.'
-  })
-}
-
-async function addDevice() {
-  await run(async () => {
-    const result = await api.addDevice(authToken.value, deviceLabel.value)
-    if ('replaceRequired' in result) {
-      replaceDeviceId.value = result.devices[0]?.id ?? ''
-      devices.value = result.devices
-      notice.value = 'Choose a device to replace.'
-      return
-    }
-
-    replaceDeviceId.value = ''
-    await refreshCabinet()
-  })
-}
-
-async function replaceDevice() {
-  await run(async () => {
-    await api.replaceDevice(authToken.value, replaceDeviceId.value, deviceLabel.value)
-    replaceDeviceId.value = ''
-    await refreshCabinet()
-  })
-}
-
-async function removeDevice(id: string) {
-  await run(async () => {
-    await api.removeDevice(authToken.value, id)
-    await refreshCabinet()
-  })
-}
-
-async function copySubscription() {
-  if (!subscriptionUrl.value || !import.meta.client) return
-  await navigator.clipboard.writeText(subscriptionUrl.value)
-  notice.value = 'Subscription link copied.'
-}
-
-async function createTelegramLinkToken() {
-  await run(async () => {
-    const result = await api.telegramLinkToken(authToken.value)
-    telegramLinkToken.value = result.token
-    notice.value = 'Telegram link token created.'
-  })
-}
-
-async function refreshCabinet() {
-  if (!authToken.value) return
-  profile.value = await api.profile(authToken.value)
-  devices.value = await api.devices(authToken.value)
-}
-
-async function run(action: () => Promise<void>) {
-  loading.value = true
-  error.value = ''
-  notice.value = ''
-
-  try {
-    await action()
-  } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : 'Unexpected error'
-  } finally {
-    loading.value = false
-  }
-}
-
-const resendLocked = computed(() => {
-  if (!resendAvailableAt.value) return false
-  return new Date(resendAvailableAt.value).getTime() > resendNow.value
-})
-
-function scheduleResendUnlock() {
-  if (resendTimer) clearTimeout(resendTimer)
-  resendNow.value = Date.now()
-  const unlockAt = resendAvailableAt.value ? new Date(resendAvailableAt.value).getTime() : 0
-  const delay = Math.max(0, unlockAt - resendNow.value)
-  if (delay > 0) {
-    resendTimer = setTimeout(() => {
-      resendNow.value = Date.now()
-    }, delay + 100)
-  }
-}
+const advantages = [
+  { icon: ShieldCheckIcon, title: 'Безопасный маршрут', text: 'Современные протоколы и защищённое соединение без ручной настройки.' },
+  { icon: ZapIcon, title: 'Подключение за минуту', text: 'Получите ссылку, добавьте её в приложение — и можно идти в интернет.' },
+  { icon: Globe2Icon, title: 'Где бы вы ни были', text: 'Работает на телефоне, ноутбуке и домашнем роутере одновременно.' }
+]
 </script>
 
 <template>
-  <main class="page">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark">V</span>
-        <span>VPN Cabinet</span>
+  <main class="min-h-screen overflow-x-hidden">
+    <MarketingHeader />
+
+    <section class="mx-auto grid min-h-[620px] w-[min(1180px,calc(100%-2rem))] items-center gap-12 py-16 lg:grid-cols-2 lg:py-20" aria-labelledby="hero-title">
+      <div class="max-w-xl">
+        <p class="mb-5 flex items-center gap-2 text-sm font-bold text-muted-foreground">
+          <span class="size-2 rounded-full bg-primary" /> Приватный интернет для ваших устройств
+        </p>
+        <h1 id="hero-title" class="text-5xl font-extrabold leading-[.98] tracking-[-0.06em] sm:text-6xl lg:text-7xl">
+          Интернет остаётся<br><span class="text-success">вашим.</span>
+        </h1>
+        <p class="mt-7 max-w-lg text-base font-medium leading-7 text-muted-foreground sm:text-lg">
+          Один защищённый доступ для телефона, компьютера и роутера. Без сложных настроек и долгих инструкций.
+        </p>
+        <div class="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center">
+          <Button as-child size="lg" class="h-13 px-6 text-base">
+            <NuxtLink to="/cabinet">Открыть кабинет <ArrowRightIcon data-icon="inline-end" /></NuxtLink>
+          </Button>
+          <Button as-child variant="link" class="justify-start px-0 text-foreground sm:justify-center">
+            <NuxtLink to="#how-it-works">Посмотреть как работает</NuxtLink>
+          </Button>
+        </div>
+        <div class="mt-8 flex flex-wrap gap-x-6 gap-y-3 text-sm font-semibold text-muted-foreground">
+          <span class="flex items-center gap-2"><CheckIcon class="size-4 text-success" /> Подключение за 1 минуту</span>
+          <span class="flex items-center gap-2"><CheckIcon class="size-4 text-success" /> До 10 устройств</span>
+        </div>
       </div>
-      <nav class="tabs" aria-label="Customer sections">
-        <span>Cabinet</span>
-        <span>Devices</span>
-        <span>Payments</span>
-        <span>Support</span>
-      </nav>
-    </header>
 
-    <div class="shell">
-      <aside class="panel stack">
-        <section class="stack" aria-labelledby="auth-title">
-          <h1 id="auth-title" class="title">Account</h1>
-          <template v-if="verificationStep">
-            <label class="label">
-              Email
-              <input v-model="email" class="input" data-testid="email" autocomplete="email" disabled>
-            </label>
-            <label class="label">
-              Verification code
-              <input v-model="verificationCode" class="input" data-testid="verification-code" inputmode="numeric" autocomplete="one-time-code">
-            </label>
-            <div class="button-row">
-              <button class="secondary" data-testid="back-to-register" :disabled="loading" @click="verificationStep = false">
-                <ArrowLeft :size="16" />
-                Back
-              </button>
-              <button class="secondary" data-testid="resend-registration" :disabled="loading || resendLocked" @click="resendRegistration">
-                <RefreshCw :size="16" />
-                Resend
-              </button>
-              <button class="primary" data-testid="verify-email" :disabled="loading" @click="verifyEmailCode">
-                <ShieldCheck :size="16" />
-                Confirm
-              </button>
+      <div class="relative grid min-h-92 place-items-center">
+        <div class="absolute inset-[12%_5%] -rotate-6 rounded-[45%_55%_52%_48%/42%_40%_60%_58%] bg-linear-to-br from-mint via-primary to-forest" />
+        <Card class="relative w-full max-w-98 shadow-xl">
+          <CardHeader class="flex-row items-start justify-between">
+            <div>
+              <p class="flex items-center gap-2 text-xs font-bold text-muted-foreground"><span class="size-2 rounded-full bg-success" /> Защита активна</p>
+              <h2 class="mt-2 text-xl font-bold tracking-tight">Москва → Амстердам</h2>
             </div>
-          </template>
-          <template v-else>
-            <label class="label">
-              Email
-              <input v-model="email" class="input" data-testid="email" autocomplete="email">
-            </label>
-            <label class="label">
-              Name
-              <input v-model="name" class="input" data-testid="name" autocomplete="name">
-            </label>
-            <label class="label">
-              Password
-              <input v-model="password" class="input" data-testid="password" type="password" autocomplete="current-password">
-            </label>
-            <label class="label">
-              Repeat password
-              <input v-model="passwordConfirm" class="input" data-testid="password-confirm" type="password" autocomplete="new-password">
-            </label>
-            <div class="button-row">
-              <button class="secondary" data-testid="register" :disabled="loading" @click="register">
-                <Plus :size="16" />
-                Register
-              </button>
-              <button class="primary" data-testid="login" :disabled="loading" @click="login">
-                <LogIn :size="16" />
-                Login
-              </button>
+            <span class="flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground"><LockKeyholeIcon class="size-5" /></span>
+          </CardHeader>
+          <CardContent class="flex flex-col gap-7">
+            <div class="flex items-center gap-3"><span class="size-3 rounded-full border-2 border-foreground" /><span class="h-0.5 flex-1 bg-border" /><span class="size-3 rounded-full bg-primary ring-2 ring-primary" /></div>
+            <div class="flex flex-wrap items-center justify-between gap-3 border-t pt-5">
+              <span class="text-sm font-semibold text-muted-foreground">Скорость</span>
+              <strong class="text-2xl tracking-tight">98 <small class="text-xs text-muted-foreground">Мбит/с</small></strong>
+              <span class="flex items-center gap-1 text-[11px] font-bold text-success"><LockKeyholeIcon class="size-3" /> Шифрование включено</span>
             </div>
-          </template>
-        </section>
+          </CardContent>
+        </Card>
+        <span class="absolute right-0 top-8 flex items-center gap-2 rounded-full border bg-background px-4 py-2 text-xs font-bold shadow-sm"><SmartphoneIcon class="size-4" /> Телефон</span>
+        <span class="absolute bottom-6 left-0 flex items-center gap-2 rounded-full border bg-background px-4 py-2 text-xs font-bold shadow-sm"><LaptopIcon class="size-4" /> Ноутбук</span>
+      </div>
+    </section>
 
-        <section class="stack" aria-labelledby="payment-title">
-          <h2 id="payment-title" class="title">Subscription</h2>
-          <select v-model="selectedPlanId" class="input" data-testid="plan-select">
-            <option v-for="plan in plans" :key="plan.id" :value="plan.id">
-              {{ plan.title }} · {{ rub(plan.priceRub) }} · {{ plan.trafficLimitGb }} GB
-            </option>
-          </select>
-          <button class="primary" data-testid="create-payment" :disabled="loading || !authToken" @click="createPayment">
-            <CreditCard :size="16" />
-            Create payment
-          </button>
-          <div v-if="invoice" class="card stack" data-testid="invoice">
-            <strong>{{ invoice.provider }} invoice</strong>
-            <span class="muted">{{ rub(invoice.amountRub) }}</span>
-            <a :href="invoice.checkoutUrl" target="_blank" rel="noreferrer">{{ invoice.checkoutUrl }}</a>
-            <button class="secondary" data-testid="sandbox-paid" @click="sandboxPaid">Mark paid</button>
-          </div>
-        </section>
-      </aside>
+    <Separator />
 
-      <section class="stack">
-        <div v-if="error" class="alert" data-testid="error">{{ error }}</div>
-        <div v-if="notice" class="status active" data-testid="notice">{{ notice }}</div>
+    <section id="how-it-works" class="mx-auto w-[min(1180px,calc(100%-2rem))] py-18 sm:py-24" aria-labelledby="steps-title">
+      <p class="text-xs font-bold uppercase tracking-wide text-success">Без технического квеста</p>
+      <h2 id="steps-title" class="mt-3 text-4xl font-extrabold tracking-[-0.04em] sm:text-5xl">Три шага — и всё работает.</h2>
+      <ol class="mt-12 grid divide-y border-t lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+        <li v-for="(step, index) in ['Создайте аккаунт', 'Получите ссылку', 'Добавьте устройство']" :key="step" class="py-7 lg:px-8 lg:first:pl-0 lg:last:pr-0">
+          <span class="text-sm font-bold text-muted-foreground">0{{ index + 1 }}</span>
+          <h3 class="mt-8 text-xl font-bold tracking-tight">{{ step }}</h3>
+          <p class="mt-3 text-sm font-medium leading-6 text-muted-foreground">{{ ['Введите почту и выберите удобный тариф.', 'Она уже содержит настройки для безопасного доступа.', 'Скопируйте ссылку в приложение и пользуйтесь.'][index] }}</p>
+        </li>
+      </ol>
+    </section>
 
-        <section class="grid" aria-label="Subscription status">
-          <article class="card stack">
-            <span class="muted">Status</span>
-            <span class="metric" data-testid="subscription-status">{{ profile?.subscriptionStatus ?? 'signed out' }}</span>
-            <span :class="['status', profile?.subscriptionStatus === 'active' ? 'active' : 'warning']">
-              Until {{ dateLabel(profile?.subscriptionEndsAt ?? null) }}
-            </span>
-          </article>
-          <article class="card stack">
-            <span class="muted">Traffic</span>
-            <span class="metric" data-testid="traffic">{{ profile?.trafficUsedGb ?? 0 }}/{{ profile?.trafficLimitGb ?? 0 }} GB</span>
-            <span class="muted">Limit is counted per user across all devices</span>
-          </article>
-        </section>
+    <section class="grid border-y bg-muted/50 md:grid-cols-3" aria-label="Преимущества VPN">
+      <article v-for="advantage in advantages" :key="advantage.title" class="mx-auto flex min-h-56 w-full max-w-md flex-col border-b px-8 py-9 last:border-b-0 md:border-b-0 md:border-r md:last:border-r-0">
+        <component :is="advantage.icon" class="size-6 text-success" />
+        <h2 class="mt-10 text-xl font-bold tracking-tight">{{ advantage.title }}</h2>
+        <p class="mt-3 text-sm font-medium leading-6 text-muted-foreground">{{ advantage.text }}</p>
+      </article>
+    </section>
 
-        <section class="panel stack" aria-labelledby="link-title">
-          <h2 id="link-title" class="title">Subscription link</h2>
-          <input class="input" data-testid="subscription-link" :value="subscriptionUrl" readonly>
-          <div class="button-row">
-            <button class="primary" data-testid="copy-subscription" :disabled="!subscriptionUrl" @click="copySubscription">
-              <Copy :size="16" />
-              Copy link
-            </button>
-            <button class="secondary" data-testid="refresh" :disabled="!authToken" @click="refreshCabinet">
-              <RefreshCw :size="16" />
-              Refresh
-            </button>
-          </div>
-        </section>
+    <section id="plans" class="mx-auto w-[min(1180px,calc(100%-2rem))] py-18 sm:py-24" aria-labelledby="pricing-title">
+      <div class="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+        <div>
+          <p class="text-xs font-bold uppercase tracking-wide text-success">Просто и прозрачно</p>
+          <h2 id="pricing-title" class="mt-3 text-4xl font-extrabold tracking-[-0.04em] sm:text-5xl">Выберите свой ритм.</h2>
+        </div>
+        <p class="max-w-xs text-sm font-medium leading-6 text-muted-foreground">Меняйте тариф в личном кабинете, когда это понадобится.</p>
+      </div>
+      <div class="mt-12 grid gap-5 md:grid-cols-3">
+        <PlanCard v-for="plan in plans" :key="plan.name" v-bind="plan" />
+      </div>
+    </section>
 
-        <section class="panel stack" aria-labelledby="devices-title">
-          <h2 id="devices-title" class="title">Devices</h2>
-          <div class="button-row">
-            <input v-model="deviceLabel" class="input" data-testid="device-label" style="max-width: 280px">
-            <button v-if="!replacementNeeded" class="primary" data-testid="add-device" :disabled="!authToken" @click="addDevice">
-              <Plus :size="16" />
-              Add device
-            </button>
-            <button v-else class="primary" data-testid="replace-device" :disabled="!replaceDeviceId" @click="replaceDevice">
-              Replace selected
-            </button>
-          </div>
-          <label v-if="replacementNeeded" class="label">
-            Device to replace
-            <select v-model="replaceDeviceId" class="input" data-testid="replace-select">
-              <option v-for="device in devices" :key="device.id" :value="device.id">
-                {{ device.label }}
-              </option>
-            </select>
-          </label>
-          <div class="list" data-testid="device-list">
-            <div v-for="device in devices" :key="device.id" class="row">
-              <div>
-                <strong>{{ device.label }}</strong>
-                <div class="muted">{{ device.serverName ?? 'No server yet' }} · {{ device.protocols.join(', ') }}</div>
-              </div>
-              <button class="secondary danger" :data-testid="`remove-${device.id}`" @click="removeDevice(device.id)">
-                <Trash2 :size="16" />
-              </button>
-            </div>
-          </div>
-        </section>
+    <section id="answers" class="mx-auto grid w-[min(1180px,calc(100%-2rem))] gap-10 border-t py-18 sm:py-24 md:grid-cols-2 md:items-end" aria-labelledby="answer-title">
+      <div>
+        <p class="text-xs font-bold uppercase tracking-wide text-success">Нужна помощь?</p>
+        <h2 id="answer-title" class="mt-3 text-4xl font-extrabold tracking-[-0.04em] sm:text-5xl">В кабинете есть всё,<br>чтобы начать.</h2>
+      </div>
+      <div class="flex flex-col items-start gap-7">
+        <p class="text-base font-medium leading-7 text-muted-foreground">Управляйте устройствами, копируйте ссылку для подключения и свяжите Telegram — всё в одном спокойном месте.</p>
+        <Button as-child size="lg"><NuxtLink to="/cabinet">Перейти в кабинет <ArrowRightIcon data-icon="inline-end" /></NuxtLink></Button>
+      </div>
+    </section>
 
-        <section class="panel stack" aria-labelledby="telegram-title">
-          <h2 id="telegram-title" class="title">Telegram</h2>
-          <div class="button-row">
-            <button class="secondary" data-testid="telegram-link-token" :disabled="!authToken" @click="createTelegramLinkToken">
-              <Link2 :size="16" />
-              Link Telegram
-            </button>
-            <input class="input" data-testid="telegram-token" :value="telegramLinkToken" readonly>
-          </div>
-        </section>
-
-        <section class="panel stack" aria-labelledby="support-title">
-          <h2 id="support-title" class="title">Instructions & support</h2>
-          <p class="muted">
-            Use the subscription link in Hiddify. The link contains VLESS REALITY, Trojan TLS and Shadowsocks profiles.
-          </p>
-        </section>
-      </section>
-    </div>
+    <footer class="mx-auto flex w-[min(1180px,calc(100%-2rem))] flex-col gap-4 border-t py-8 text-sm font-medium text-muted-foreground sm:flex-row sm:items-center">
+      <span class="font-bold text-foreground">VPN</span>
+      <span class="sm:ml-auto">Приватный доступ без лишнего шума.</span>
+      <NuxtLink to="/cabinet" class="font-semibold text-foreground hover:underline">Личный кабинет</NuxtLink>
+    </footer>
   </main>
 </template>
