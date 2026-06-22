@@ -53,15 +53,17 @@ function assertPaymentProviderConfig(prefix: 'PLATEGA', errors: string[]): void 
 }
 
 function assertEmailConfig(errors: string[]): void {
-  if ((process.env.EMAIL_DELIVERY_MODE ?? 'smtp') !== 'smtp') errors.push('EMAIL_DELIVERY_MODE=smtp is required in production')
+  if ((process.env.EMAIL_PROVIDER ?? 'smtp') !== 'smtp') errors.push('EMAIL_PROVIDER=smtp is required in production')
   if (!process.env.EMAIL_VERIFICATION_BASE_URL && !process.env.APP_PUBLIC_URL) {
     errors.push('EMAIL_VERIFICATION_BASE_URL or APP_PUBLIC_URL is required')
   }
-  if (!process.env.YANDEX360_SMTP_USERNAME) errors.push('YANDEX360_SMTP_USERNAME is required')
-  if (!process.env.YANDEX360_SMTP_PASSWORD || process.env.YANDEX360_SMTP_PASSWORD === 'change-me') {
-    errors.push('YANDEX360_SMTP_PASSWORD must be set to an app password')
+  if (!process.env.EMAIL_SMTP_HOST) errors.push('EMAIL_SMTP_HOST is required')
+  if (!process.env.EMAIL_SMTP_USER) errors.push('EMAIL_SMTP_USER is required')
+  if (!process.env.EMAIL_SMTP_PASSWORD || process.env.EMAIL_SMTP_PASSWORD === 'change-me') {
+    errors.push('EMAIL_SMTP_PASSWORD must be set to an app password')
   }
-  if (!process.env.YANDEX360_FROM_EMAIL) errors.push('YANDEX360_FROM_EMAIL is required')
+  if (!process.env.EMAIL_FROM) errors.push('EMAIL_FROM is required')
+  if ((process.env.EMAIL_SMTP_SECURE ?? 'true') !== 'true') errors.push('EMAIL_SMTP_SECURE=true is required')
 }
 
 function assertMarzbanConfig(errors: string[]): void {

@@ -45,15 +45,16 @@ TBANK_RECEIPT_PAYMENT_OBJECT=service
 PLATEGA_API_BASE_URL=https://api.platega.example
 PLATEGA_MERCHANT_ID=change-me
 PLATEGA_SECRET=change-me
-EMAIL_DELIVERY_MODE=smtp
+EMAIL_PROVIDER=smtp
 EMAIL_VERIFICATION_BASE_URL=https://cabinet.example.com
-YANDEX360_SMTP_HOST=smtp.yandex.com
-YANDEX360_SMTP_PORT=465
-YANDEX360_SMTP_USERNAME=robot@example.com
-YANDEX360_SMTP_PASSWORD=<app password>
-YANDEX360_FROM_EMAIL=robot@example.com
-YANDEX360_DOMAIN=example.com
-YANDEX360_DKIM_SELECTOR=mail
+EMAIL_FROM="VPN Cabinet <no-reply@my-administrator.ru>"
+EMAIL_SMTP_HOST=smtp.yandex.ru
+EMAIL_SMTP_PORT=465
+EMAIL_SMTP_SECURE=true
+EMAIL_SMTP_USER=no-reply@my-administrator.ru
+EMAIL_SMTP_PASSWORD=<app password>
+EMAIL_DOMAIN=my-administrator.ru
+EMAIL_DKIM_SELECTOR=mail
 MARZBAN_BASE_URL=http://marzban:8000
 MARZBAN_USERNAME=change-me
 MARZBAN_PASSWORD=change-me
@@ -78,7 +79,7 @@ bun run check:production-readiness
 ```
 
 `smoke:tbank` создает реальный T-Bank invoice через `/v2/Init`, если заданы `TBANK_TERMINAL_KEY` и `TBANK_PASSWORD`.
-`check:yandex360-dns` проверяет SPF, DKIM, DMARC и MX для `YANDEX360_DOMAIN`.
+`check:yandex360-dns` проверяет SPF, DKIM, DMARC и MX для `EMAIL_DOMAIN`.
 `smoke:yandex360-email` отправляет verification-письма через Yandex 360 SMTP и сохраняет marker в `output/email-smoke.json`.
 `check:email-delivery` заходит по IMAP в тестовые Yandex/Mail.ru/Gmail ящики и проверяет, что marker найден во входящих, а не в spam. Скопируй `scripts/ci/email-delivery-checks.example.json` в `email-delivery-checks.json` и задай пароли через `YANDEX_TEST_IMAP_PASSWORD`, `MAILRU_TEST_IMAP_PASSWORD`, `GMAIL_TEST_IMAP_APP_PASSWORD`.
 `check:production-readiness` запускает локальный `ci:check` и все внешние smoke/check gates в строгом режиме: без реальных T-Bank/Yandex/DNS/IMAP env команда должна падать.

@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 import { resolveCname, resolveMx, resolveTxt } from 'node:dns/promises'
 
-const domain = process.env.YANDEX360_DOMAIN ?? domainFromEmail(process.env.YANDEX360_FROM_EMAIL)
+const domain = process.env.EMAIL_DOMAIN ?? domainFromEmail(process.env.EMAIL_FROM)
 const strict = process.env.EXTERNAL_SMOKE_STRICT === 'true'
 
 if (!domain) {
-  const message = 'Yandex 360 DNS check skipped: set YANDEX360_DOMAIN or YANDEX360_FROM_EMAIL.'
+  const message = 'Yandex 360 DNS check skipped: set EMAIL_DOMAIN or EMAIL_FROM.'
   if (strict) {
     console.error(message)
     process.exit(1)
@@ -15,9 +15,9 @@ if (!domain) {
   process.exit(0)
 }
 
-const dkimSelector = process.env.YANDEX360_DKIM_SELECTOR ?? 'mail'
-const expectedSpfInclude = process.env.YANDEX360_EXPECTED_SPF_INCLUDE ?? '_spf.yandex.net'
-const expectedMx = process.env.YANDEX360_EXPECTED_MX ?? 'mx.yandex.net'
+const dkimSelector = process.env.EMAIL_DKIM_SELECTOR ?? 'mail'
+const expectedSpfInclude = process.env.EMAIL_EXPECTED_SPF_INCLUDE ?? '_spf.yandex.net'
+const expectedMx = process.env.EMAIL_EXPECTED_MX ?? 'mx.yandex.net'
 const failures: string[] = []
 
 console.log(`Checking Yandex 360 DNS records for ${domain}`)
@@ -101,6 +101,6 @@ function hasDkimRecord(records: string[]): boolean {
 }
 
 function domainFromEmail(email: string | undefined): string | null {
-  const match = email?.match(/@([^@\s]+)$/)
+  const match = email?.match(/@([^<>\s]+)>?$/)
   return match?.[1]?.toLowerCase() ?? null
 }

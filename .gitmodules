@@ -1,0 +1,3 @@
+[submodule "tools/my-core-mcp"]
+	path = tools/my-core-mcp
+	url = https://github.com/nowaysgit/my-core-mcp.git

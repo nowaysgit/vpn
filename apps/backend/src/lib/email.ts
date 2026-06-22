@@ -24,28 +24,31 @@ type SmtpConfig = {
 }
 
 export function createEmailSender(): EmailSender {
-  const mode = process.env.EMAIL_DELIVERY_MODE ?? (process.env.NODE_ENV === 'production' ? 'smtp' : 'outbox')
+  const provider = process.env.EMAIL_PROVIDER ?? (process.env.NODE_ENV === 'production' ? 'smtp' : 'outbox')
 
-  if (mode === 'smtp') return new SmtpEmailSender(smtpConfig())
+  if (provider === 'smtp') return new SmtpEmailSender(smtpConfig())
+  if (provider !== 'outbox') throw new Error('EMAIL_PROVIDER must be smtp or outbox')
   return new DevOutboxEmailSender(process.env.EMAIL_DEV_OUTBOX_PATH ?? 'output/email-outbox.jsonl')
 }
 
 function smtpConfig(): SmtpConfig {
-  const username = process.env.YANDEX360_SMTP_USERNAME
-  const password = process.env.YANDEX360_SMTP_PASSWORD
-  const fromEmail = process.env.YANDEX360_FROM_EMAIL ?? username
+  const username = process.env.EMAIL_SMTP_USER
+  const password = process.env.EMAIL_SMTP_PASSWORD
+  const from = parseMailbox(process.env.EMAIL_FROM ?? username)
+  const secure = process.env.EMAIL_SMTP_SECURE ?? 'true'
 
-  if (!username) throw new Error('YANDEX360_SMTP_USERNAME is required')
-  if (!password) throw new Error('YANDEX360_SMTP_PASSWORD is required')
-  if (!fromEmail) throw new Error('YANDEX360_FROM_EMAIL is required')
+  if (!username) throw new Error('EMAIL_SMTP_USER is required')
+  if (!password) throw new Error('EMAIL_SMTP_PASSWORD is required')
+  if (!from.email) throw new Error('EMAIL_FROM is required')
+  if (secure !== 'true') throw new Error('EMAIL_SMTP_SECURE=true is required')
 
   return {
-    host: process.env.YANDEX360_SMTP_HOST ?? 'smtp.yandex.com',
-    port: Number(process.env.YANDEX360_SMTP_PORT ?? 465),
+    host: process.env.EMAIL_SMTP_HOST ?? 'smtp.yandex.ru',
+    port: Number(process.env.EMAIL_SMTP_PORT ?? 465),
     username,
     password,
-    fromEmail,
-    fromName: process.env.YANDEX360_FROM_NAME ?? 'VPN Cabinet'
+    fromEmail: from.email,
+    fromName: from.name ?? 'VPN Cabinet'
   }
 }
 
@@ -123,6 +126,17 @@ function verificationMessage(config: SmtpConfig, input: VerificationEmailInput):
 
 function mailbox(name: string, email: string): string {
   return `"${encodeHeader(name).replace(/"/g, '\\"')}" <${email}>`
+}
+
+function parseMailbox(value: string | undefined): { email: string; name?: string } {
+  const trimmed = value?.trim() ?? ''
+  const match = trimmed.match(/^(.*?)\s*<([^<>@\s]+@[^<>@\s]+)>$/)
+  if (!match) return { email: trimmed }
+
+  const rawName = match[1]
+  const name = rawName ? rawName.trim().replace(/^"|"$/g, '') : ''
+  const email = match[2] ?? ''
+  return name ? { email, name } : { email }
 }
 
 function encodeHeader(value: string): string {

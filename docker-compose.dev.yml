@@ -35,7 +35,7 @@ services:
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
       API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:3001}
       API_DOMAIN: ${API_DOMAIN:-dev.api.vpn.localhost}
-      EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-outbox}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-outbox}
       EMAIL_DEV_OUTBOX_PATH: ${EMAIL_DEV_OUTBOX_PATH:-/app/output/email-outbox.jsonl}
     ports:
       - "3001:3001"

@@ -9,6 +9,7 @@ bun.lockb
 .output/
 .agents/
 .codex/
+.my-core/
 dist/
 coverage/
 playwright-report/

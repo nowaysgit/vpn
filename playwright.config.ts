@@ -38,7 +38,7 @@ export default defineConfig({
             PORT: '3001',
             JWT_ACCESS_SECRET: 'test-secret',
             CREDENTIAL_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000',
-            EMAIL_DELIVERY_MODE: 'outbox',
+            EMAIL_PROVIDER: 'outbox',
             EMAIL_DEV_OUTBOX_PATH: 'output/email-outbox.jsonl'
           }
         },

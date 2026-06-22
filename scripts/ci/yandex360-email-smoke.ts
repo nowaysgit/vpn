@@ -20,7 +20,7 @@ if (recipients.length === 0) {
   process.exit(0)
 }
 
-const required = ['YANDEX360_SMTP_USERNAME', 'YANDEX360_SMTP_PASSWORD', 'YANDEX360_FROM_EMAIL']
+const required = ['EMAIL_SMTP_USER', 'EMAIL_SMTP_PASSWORD', 'EMAIL_FROM']
 const missing = required.filter((key) => !process.env[key])
 if (missing.length > 0) {
   const message = `Yandex 360 email smoke skipped: missing ${missing.join(', ')}.`
@@ -33,7 +33,7 @@ if (missing.length > 0) {
   process.exit(0)
 }
 
-process.env.EMAIL_DELIVERY_MODE = 'smtp'
+process.env.EMAIL_PROVIDER = 'smtp'
 
 const sender = createEmailSender()
 const verificationBase = process.env.EMAIL_VERIFICATION_BASE_URL ?? process.env.APP_PUBLIC_URL ?? 'http://localhost:3000'
