@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { verificationEmailFor } from './email-outbox.js'
+import { customerUrl } from './urls.js'
 
 test('customer can register, pay, copy subscription and replace fifth device', async ({ page }) => {
   const email = `ui-${Date.now()}@example.com`
 
-  await page.goto('http://127.0.0.1:3000/cabinet')
+  await page.goto(customerUrl('/cabinet'))
   await page.getByTestId('email').fill(email)
   await page.getByTestId('name').fill('UI User')
   await page.getByTestId('password').fill('password123')

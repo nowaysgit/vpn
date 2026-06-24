@@ -37,9 +37,9 @@ export class MarzbanProviderAdapter implements VpnProviderAdapter {
   constructor(input: MarzbanAdapterOptions) {
     this.nodeId = input.nodeId
     this.host = input.host
-    this.baseUrl = input.baseUrl ?? process.env.MARZBAN_BASE_URL
-    this.username = input.username ?? process.env.MARZBAN_USERNAME
-    this.password = input.password ?? process.env.MARZBAN_PASSWORD
+    this.baseUrl = input.baseUrl ?? testlessEnv('MARZBAN_BASE_URL')
+    this.username = input.username ?? testlessEnv('MARZBAN_USERNAME')
+    this.password = input.password ?? testlessEnv('MARZBAN_PASSWORD')
     this.fetchImpl = input.fetchImpl ?? fetch
   }
 
@@ -283,6 +283,10 @@ function protocolFromUri(uri: string): VpnProtocol | null {
 
 function normalizedBaseUrl(value: string): string {
   return value.endsWith('/') ? value : `${value}/`
+}
+
+function testlessEnv(key: string): string | undefined {
+  return process.env.NODE_ENV === 'test' ? undefined : process.env[key]
 }
 
 export class ManualExternalProviderAdapter implements VpnProviderAdapter {

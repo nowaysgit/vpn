@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test'
 import { verificationEmailFor } from './email-outbox.js'
+import { apiUrl } from './urls.js'
 
 test('backend API supports the paid subscription and device path', async ({ request }) => {
   const email = `api-${Date.now()}@example.com`
-  const registered = await request.post('http://127.0.0.1:3001/auth/register', {
+  const registered = await request.post(apiUrl('/auth/register'), {
     data: { email, name: 'API User', password: 'password123' }
   })
   expect(registered.ok()).toBeTruthy()
@@ -12,18 +13,18 @@ test('backend API supports the paid subscription and device path', async ({ requ
   expect(registration.verificationToken).toBeUndefined()
   const verificationEmail = await verificationEmailFor(email)
 
-  const verified = await request.post('http://127.0.0.1:3001/auth/verify-email', {
+  const verified = await request.post(apiUrl('/auth/verify-email'), {
     data: { email, code: verificationEmail.code }
   })
   expect(verified.ok()).toBeTruthy()
 
-  const loggedIn = await request.post('http://127.0.0.1:3001/auth/login', {
+  const loggedIn = await request.post(apiUrl('/auth/login'), {
     data: { email, password: 'password123' }
   })
   expect(loggedIn.ok()).toBeTruthy()
   const login = await loggedIn.json()
 
-  const invoiceResponse = await request.post('http://127.0.0.1:3001/payments/create', {
+  const invoiceResponse = await request.post(apiUrl('/payments/create'), {
     headers: { authorization: `Bearer ${login.token}` },
     data: { planId: 'plan_starter', idempotencyKey: `e2e-${email}` }
   })
@@ -32,13 +33,13 @@ test('backend API supports the paid subscription and device path', async ({ requ
 
   expect(invoice.provider).toBe('tbank')
 
-  const paid = await request.post('http://127.0.0.1:3001/payments/webhooks/tbank', {
+  const paid = await request.post(apiUrl('/payments/webhooks/tbank'), {
     data: { PaymentId: invoice.id, Status: 'CONFIRMED', Success: true, Amount: invoice.amountRub * 100 }
   })
   expect(paid.ok()).toBeTruthy()
   expect(await paid.text()).toBe('OK')
 
-  const device = await request.post('http://127.0.0.1:3001/me/devices', {
+  const device = await request.post(apiUrl('/me/devices'), {
     headers: { authorization: `Bearer ${login.token}` },
     data: { label: 'API laptop' }
   })

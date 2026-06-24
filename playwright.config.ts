@@ -1,6 +1,13 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const useManagedWebServers = process.env.PLAYWRIGHT_SKIP_WEBSERVER !== '1'
+const apiBaseUrl = process.env.API_E2E_URL ?? 'http://127.0.0.1:3001'
+const customerBaseUrl = process.env.CUSTOMER_E2E_URL ?? 'http://127.0.0.1:3000'
+const adminBaseUrl = process.env.ADMIN_E2E_URL ?? 'http://127.0.0.1:3002'
+const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgres://postgres:postgres@127.0.0.1:5432/vpn_test'
+const apiPort = new URL(apiBaseUrl).port || '80'
+const customerPort = new URL(customerBaseUrl).port || '80'
+const adminPort = new URL(adminBaseUrl).port || '80'
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -29,13 +36,16 @@ export default defineConfig({
   webServer: useManagedWebServers
     ? [
         {
-          command: 'bun run --cwd apps/backend start',
-          url: 'http://127.0.0.1:3001/health',
+          command: 'bun run --cwd apps/backend migrate && bun run --cwd apps/backend start',
+          url: `${apiBaseUrl}/health`,
           reuseExistingServer: true,
           timeout: 120_000,
           env: {
             NODE_ENV: 'test',
-            PORT: '3001',
+            PORT: apiPort,
+            DATABASE_URL: databaseUrl,
+            API_PUBLIC_URL: apiBaseUrl,
+            APP_PUBLIC_URL: customerBaseUrl,
             JWT_ACCESS_SECRET: 'test-secret',
             CREDENTIAL_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000',
             EMAIL_PROVIDER: 'outbox',
@@ -44,26 +54,26 @@ export default defineConfig({
         },
         {
           command: 'bun run --cwd apps/customer-web serve:built',
-          url: 'http://127.0.0.1:3000',
+          url: customerBaseUrl,
           reuseExistingServer: true,
           timeout: 180_000,
           env: {
             NODE_ENV: 'test',
             HOST: '0.0.0.0',
-            PORT: '3000',
-            API_BASE_URL: 'http://127.0.0.1:3001'
+            PORT: customerPort,
+            NUXT_PUBLIC_API_BASE_URL: apiBaseUrl
           }
         },
         {
           command: 'bun run --cwd apps/admin-web serve:built',
-          url: 'http://127.0.0.1:3002',
+          url: adminBaseUrl,
           reuseExistingServer: true,
           timeout: 180_000,
           env: {
             NODE_ENV: 'test',
             HOST: '0.0.0.0',
-            PORT: '3002',
-            API_BASE_URL: 'http://127.0.0.1:3001'
+            PORT: adminPort,
+            NUXT_PUBLIC_API_BASE_URL: apiBaseUrl
           }
         }
       ]

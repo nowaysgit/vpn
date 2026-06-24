@@ -5,6 +5,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  index,
   text,
   timestamp,
   uniqueIndex
@@ -48,6 +49,21 @@ export const users = pgTable(
   (table) => ({
     emailIdx: uniqueIndex('users_email_idx').on(table.email),
     subscriptionTokenIdx: uniqueIndex('users_subscription_token_idx').on(table.subscriptionToken)
+  })
+)
+
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => users.id),
+    tokenHash: text('token_hash').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull()
+  },
+  (table) => ({
+    tokenHashIdx: uniqueIndex('sessions_token_hash_idx').on(table.tokenHash),
+    userExpiresAtIdx: index('sessions_user_expires_at_idx').on(table.userId, table.expiresAt)
   })
 )
 

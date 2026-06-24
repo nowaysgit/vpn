@@ -6,15 +6,15 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-vpn}-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-vpn}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-vpn}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?POSTGRES_USER is required} -d ${POSTGRES_DB:?POSTGRES_DB is required}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -31,53 +31,64 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: ${DATABASE_URL}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL is required}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:?API_PUBLIC_URL is required}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       PG_BOSS_SCHEMA: ${PG_BOSS_SCHEMA:-pgboss}
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:?SEED_ADMIN_EMAIL is required}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?SEED_ADMIN_PASSWORD is required}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
       TBANK_API_BASE_URL: ${TBANK_API_BASE_URL:-https://securepay.tinkoff.ru}
-      TBANK_TERMINAL_KEY: ${TBANK_TERMINAL_KEY}
-      TBANK_PASSWORD: ${TBANK_PASSWORD}
-      TBANK_NOTIFICATION_URL: ${TBANK_NOTIFICATION_URL}
-      TBANK_SUCCESS_URL: ${TBANK_SUCCESS_URL}
-      TBANK_FAIL_URL: ${TBANK_FAIL_URL}
-      TBANK_RECEIPT_TAXATION: ${TBANK_RECEIPT_TAXATION}
+      TBANK_TERMINAL_KEY: ${TBANK_TERMINAL_KEY:?TBANK_TERMINAL_KEY is required}
+      TBANK_PASSWORD: ${TBANK_PASSWORD:?TBANK_PASSWORD is required}
+      TBANK_NOTIFICATION_URL: ${TBANK_NOTIFICATION_URL:?TBANK_NOTIFICATION_URL is required}
+      TBANK_SUCCESS_URL: ${TBANK_SUCCESS_URL:?TBANK_SUCCESS_URL is required}
+      TBANK_FAIL_URL: ${TBANK_FAIL_URL:?TBANK_FAIL_URL is required}
+      TBANK_RECEIPT_TAXATION: ${TBANK_RECEIPT_TAXATION:-}
       TBANK_RECEIPT_TAX: ${TBANK_RECEIPT_TAX:-none}
       TBANK_RECEIPT_PAYMENT_METHOD: ${TBANK_RECEIPT_PAYMENT_METHOD:-full_payment}
       TBANK_RECEIPT_PAYMENT_OBJECT: ${TBANK_RECEIPT_PAYMENT_OBJECT:-service}
-      PLATEGA_API_BASE_URL: ${PLATEGA_API_BASE_URL}
-      PLATEGA_MERCHANT_ID: ${PLATEGA_MERCHANT_ID}
-      PLATEGA_SECRET: ${PLATEGA_SECRET}
+      PLATEGA_API_BASE_URL: ${PLATEGA_API_BASE_URL:?PLATEGA_API_BASE_URL is required}
+      PLATEGA_MERCHANT_ID: ${PLATEGA_MERCHANT_ID:?PLATEGA_MERCHANT_ID is required}
+      PLATEGA_SECRET: ${PLATEGA_SECRET:?PLATEGA_SECRET is required}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
-      EMAIL_FROM: ${EMAIL_FROM}
+      EMAIL_FROM: ${EMAIL_FROM:?EMAIL_FROM is required}
       EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:-smtp.yandex.ru}
       EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:-465}
       EMAIL_SMTP_SECURE: ${EMAIL_SMTP_SECURE:-true}
-      EMAIL_SMTP_USER: ${EMAIL_SMTP_USER}
-      EMAIL_SMTP_PASSWORD: ${EMAIL_SMTP_PASSWORD}
-      EMAIL_VERIFICATION_SECRET: ${EMAIL_VERIFICATION_SECRET}
+      EMAIL_SMTP_USER: ${EMAIL_SMTP_USER:?EMAIL_SMTP_USER is required}
+      EMAIL_SMTP_PASSWORD: ${EMAIL_SMTP_PASSWORD:?EMAIL_SMTP_PASSWORD is required}
+      EMAIL_VERIFICATION_SECRET: ${EMAIL_VERIFICATION_SECRET:?EMAIL_VERIFICATION_SECRET is required}
       EMAIL_VERIFICATION_TTL_MIN: ${EMAIL_VERIFICATION_TTL_MIN:-15}
       EMAIL_VERIFICATION_RESEND_COOLDOWN_SEC: ${EMAIL_VERIFICATION_RESEND_COOLDOWN_SEC:-60}
-      EMAIL_DOMAIN: ${EMAIL_DOMAIN}
+      EMAIL_DOMAIN: ${EMAIL_DOMAIN:?EMAIL_DOMAIN is required}
       EMAIL_DKIM_SELECTOR: ${EMAIL_DKIM_SELECTOR:-mail}
       EMAIL_EXPECTED_SPF_INCLUDE: ${EMAIL_EXPECTED_SPF_INCLUDE:-_spf.yandex.net}
       EMAIL_EXPECTED_MX: ${EMAIL_EXPECTED_MX:-mx.yandex.net}
-      MARZBAN_BASE_URL: ${MARZBAN_BASE_URL}
-      MARZBAN_USERNAME: ${MARZBAN_USERNAME}
-      MARZBAN_PASSWORD: ${MARZBAN_PASSWORD}
-      TELEGRAM_BOT_SECRET: ${TELEGRAM_BOT_SECRET}
+      MARZBAN_BASE_URL: ${MARZBAN_BASE_URL:?MARZBAN_BASE_URL is required}
+      MARZBAN_USERNAME: ${MARZBAN_USERNAME:?MARZBAN_USERNAME is required}
+      MARZBAN_PASSWORD: ${MARZBAN_PASSWORD:?MARZBAN_PASSWORD is required}
+      EXTERNAL_FALLBACK_URI_TEMPLATE: ${EXTERNAL_FALLBACK_URI_TEMPLATE:?EXTERNAL_FALLBACK_URI_TEMPLATE is required}
+      TELEGRAM_BOT_SECRET: ${TELEGRAM_BOT_SECRET:?TELEGRAM_BOT_SECRET is required}
     networks:
       - internal
       - edge
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3001/health'); process.exit(r.ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     labels:
       - traefik.enable=true
       - traefik.docker.network=${EDGE_NETWORK:-vds-edge}
       - traefik.http.services.vpn-api.loadbalancer.server.port=3001
       - traefik.http.middlewares.vpn-https-redirect.redirectscheme.scheme=https
-      - traefik.http.routers.vpn-api-http.rule=Host(`${API_DOMAIN}`)
+      - traefik.http.routers.vpn-api-http.rule=Host(`${API_DOMAIN:?API_DOMAIN is required}`)
       - traefik.http.routers.vpn-api-http.entrypoints=web
       - traefik.http.routers.vpn-api-http.middlewares=vpn-https-redirect
-      - traefik.http.routers.vpn-api.rule=Host(`${API_DOMAIN}`)
+      - traefik.http.routers.vpn-api.rule=Host(`${API_DOMAIN:?API_DOMAIN is required}`)
       - traefik.http.routers.vpn-api.entrypoints=websecure
       - traefik.http.routers.vpn-api.tls=true
       - traefik.http.routers.vpn-api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}

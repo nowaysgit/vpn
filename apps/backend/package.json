@@ -10,7 +10,7 @@
     "lint": "eslint src test drizzle.config.ts",
     "lint:fix": "eslint src test drizzle.config.ts --fix",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
+    "test": "bun test --max-concurrency=1",
     "ci:check": "bun run lint && bun run typecheck && bun run test",
     "ci:fix": "bun run lint:fix"
   },

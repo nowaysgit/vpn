@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test'
+import { adminUrl } from './urls.js'
 
 test('admin can inspect clients, grant subscription and see audit entries', async ({ page }) => {
-  await page.goto('http://127.0.0.1:3002')
+  await page.goto(adminUrl('/'))
   await page.getByTestId('admin-email').fill('owner@vpn.local')
   await page.getByTestId('admin-password').fill('changeme')
   await page.getByTestId('admin-login').click()

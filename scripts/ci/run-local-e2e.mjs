@@ -10,23 +10,40 @@ const wrapperLogPath = join(outputDir, 'e2e-wrapper.log')
 const serviceLogPath = join(outputDir, 'e2e-services.log')
 const testLogPath = join(outputDir, 'playwright-run.log')
 const emailOutboxPath = join(outputDir, 'email-outbox.jsonl')
+const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgres://postgres:postgres@127.0.0.1:5432/vpn_test'
+const apiPort = process.env.API_E2E_PORT ?? '3101'
+const customerPort = process.env.CUSTOMER_E2E_PORT ?? '3100'
+const adminPort = process.env.ADMIN_E2E_PORT ?? '3102'
+const apiUrl = `http://127.0.0.1:${apiPort}`
+const customerUrl = `http://127.0.0.1:${customerPort}`
+const adminUrl = `http://127.0.0.1:${adminPort}`
 const services = []
 
 mkdirSync(outputDir, { recursive: true })
 writeFileSync(serviceLogPath, '')
 writeFileSync(emailOutboxPath, '')
 
-if (process.env.E2E_CLEAN_CHILD !== '1' && process.env.npm_lifecycle_event) {
+if (
+  process.env.E2E_CLEAN_CHILD !== '1' &&
+  (process.env.npm_lifecycle_event || process.env.E2E_FORCE_CLEAN_CHILD === '1')
+) {
   const code = await runCleanChild()
   printFile(wrapperLogPath, code === 0 ? undefined : 200)
   process.exit(code)
 }
 
 try {
+  run('bun', ['run', '--cwd', 'apps/backend', 'migrate'], {
+    DATABASE_URL: databaseUrl
+  })
+
   services.push(
     startService('backend', ['run', '--cwd', 'apps/backend', 'start'], {
       NODE_ENV: 'test',
-      PORT: '3001',
+      PORT: apiPort,
+      DATABASE_URL: databaseUrl,
+      API_PUBLIC_URL: apiUrl,
+      APP_PUBLIC_URL: customerUrl,
       JWT_ACCESS_SECRET: 'test-secret',
       CREDENTIAL_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000',
       EMAIL_PROVIDER: 'outbox',
@@ -37,23 +54,23 @@ try {
     startService('customer-web', ['run', '--cwd', 'apps/customer-web', 'serve:built'], {
       NODE_ENV: 'test',
       HOST: '0.0.0.0',
-      PORT: '3000',
-      API_BASE_URL: 'http://127.0.0.1:3001'
+      PORT: customerPort,
+      NUXT_PUBLIC_API_BASE_URL: apiUrl
     })
   )
   services.push(
     startService('admin-web', ['run', '--cwd', 'apps/admin-web', 'serve:built'], {
       NODE_ENV: 'test',
       HOST: '0.0.0.0',
-      PORT: '3002',
-      API_BASE_URL: 'http://127.0.0.1:3001'
+      PORT: adminPort,
+      NUXT_PUBLIC_API_BASE_URL: apiUrl
     })
   )
 
   await Promise.all([
-    waitForUrl('http://127.0.0.1:3001/health', 'backend'),
-    waitForUrl('http://127.0.0.1:3000', 'customer-web'),
-    waitForUrl('http://127.0.0.1:3002', 'admin-web')
+    waitForUrl(`${apiUrl}/health`, 'backend'),
+    waitForUrl(customerUrl, 'customer-web'),
+    waitForUrl(adminUrl, 'admin-web')
   ])
 
   const code = await runPlaywright(args)
@@ -80,9 +97,22 @@ function startService(name, commandArgs, env) {
   return { name, child, logFd }
 }
 
+function run(command, commandArgs, env) {
+  const result = spawnSync(command, commandArgs, {
+    cwd: root,
+    env: childEnv(env),
+    stdio: 'inherit',
+    shell: false
+  })
+
+  if (result.status !== 0) {
+    throw new Error(`${command} ${commandArgs.join(' ')} failed with exit code ${result.status ?? 1}`)
+  }
+}
+
 async function runCleanChild() {
   const logFd = openSync(wrapperLogPath, 'w')
-  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...args], {
+  const child = spawn(realNodeExecutable(), [fileURLToPath(import.meta.url), ...args], {
     cwd: root,
     detached: true,
     env: childEnv({ E2E_CLEAN_CHILD: '1' }),
@@ -127,7 +157,13 @@ async function runPlaywright(commandArgs) {
   const logFd = openSync(testLogPath, 'w')
   const child = spawn(playwrightBin, ['test', ...commandArgs], {
     cwd: root,
-    env: childEnv({ PLAYWRIGHT_SKIP_WEBSERVER: '1', EMAIL_DEV_OUTBOX_PATH: emailOutboxPath }),
+    env: childEnv({
+      PLAYWRIGHT_SKIP_WEBSERVER: '1',
+      EMAIL_DEV_OUTBOX_PATH: emailOutboxPath,
+      API_E2E_URL: apiUrl,
+      CUSTOMER_E2E_URL: customerUrl,
+      ADMIN_E2E_URL: adminUrl
+    }),
     stdio: ['ignore', logFd, logFd],
     shell: false
   })
@@ -171,9 +207,39 @@ function childEnv(overrides) {
     if (key.startsWith('BUN_')) delete env[key]
   }
 
+  sanitizePath(env)
   delete env.INIT_CWD
 
   return env
+}
+
+function sanitizePath(env) {
+  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path')
+  if (!pathKey || !env[pathKey]) return
+
+  env[pathKey] = String(env[pathKey])
+    .split(process.platform === 'win32' ? ';' : ':')
+    .filter((entry) => !entry.toLowerCase().includes(`${process.platform === 'win32' ? '\\' : '/'}temp${process.platform === 'win32' ? '\\' : '/'}bun-node-`))
+    .join(process.platform === 'win32' ? ';' : ':')
+}
+
+function realNodeExecutable() {
+  if (process.platform !== 'win32' || !process.execPath.toLowerCase().includes('\\temp\\bun-node-')) {
+    return process.execPath
+  }
+
+  const result = spawnSync('where.exe', ['node'], {
+    env: childEnv(),
+    encoding: 'utf8',
+    shell: false
+  })
+  const candidates = String(result.stdout ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const node = candidates.find((candidate) => !candidate.toLowerCase().includes('\\temp\\bun-node-'))
+
+  return node ?? 'node'
 }
 
 function sleep(ms) {

@@ -35,7 +35,7 @@ export class TBankPaymentAdapter implements PaymentProviderAdapter {
 
   async createInvoice(input: CreateInvoiceInput): Promise<PaymentInvoice> {
     const config = tBankConfig()
-    if (config.terminalKey && config.password) return createTBankInvoice(config, input)
+    if (process.env.NODE_ENV !== 'test' && config.terminalKey && config.password) return createTBankInvoice(config, input)
     assertSandboxAllowed(this.id)
 
     const id = createId('pay')
@@ -71,7 +71,7 @@ export class PlategaPaymentAdapter implements PaymentProviderAdapter {
 
   async createInvoice(input: CreateInvoiceInput): Promise<PaymentInvoice> {
     const config = providerConfig('PLATEGA')
-    if (config.apiBaseUrl) return createRemoteInvoice(this.id, config, input)
+    if (process.env.NODE_ENV !== 'test' && config.apiBaseUrl) return createRemoteInvoice(this.id, config, input)
     assertSandboxAllowed(this.id)
 
     const id = createId('pay')

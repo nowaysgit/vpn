@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { createApp } from '../src/app'
+import { fileURLToPath } from 'node:url'
+import { Pool } from 'pg'
 import type { EmailSender, VerificationEmailInput } from '../src/lib/email'
-import { addTraffic } from '../src/lib/subscriptions'
 import { addDays } from '../src/lib/time'
+
+type AppModule = typeof import('../src/app')
+type App = Awaited<ReturnType<AppModule['createApp']>>['app']
 
 type RegisterResponse = {
   userId: string
@@ -38,8 +41,12 @@ type DeviceLimitResponse = {
   devices: DeviceResponse[]
 }
 
+const databaseUrl = process.env.TEST_DATABASE_URL
+const testIf = databaseUrl ? test : test.skip
+let appModule: AppModule | null = null
+
 describe('backend API e2e', () => {
-  test('registers, verifies, pays and exposes one subscription URL with all MVP protocols', async () => {
+  testIf('registers, verifies, pays and exposes one subscription URL with all MVP protocols', async () => {
     const { app, codeFor } = await createTestApp()
     const registered = await json<RegisterResponse>(
       app.handle(request('POST', '/auth/register', { email: 'user@example.com', name: 'User', password: 'password123' }))
@@ -60,11 +67,7 @@ describe('backend API e2e', () => {
     )
     expect(invoice.provider).toBe('tbank')
 
-    await text(
-      app.handle(
-        request('POST', '/payments/webhooks/tbank', tBankPaidWebhook(invoice))
-      )
-    )
+    await text(app.handle(request('POST', '/payments/webhooks/tbank', tBankPaidWebhook(invoice))))
 
     const device = await json<DeviceResponse>(app.handle(request('POST', '/me/devices', { label: 'Laptop' }, loggedIn.token)))
     expect(device.protocols).toEqual(['vless-reality', 'trojan-tls', 'shadowsocks'])
@@ -80,8 +83,8 @@ describe('backend API e2e', () => {
     expect(subscription).toContain('ss://')
   })
 
-  test('keeps payment webhooks idempotent', async () => {
-    const { app, store, codeFor } = await createTestApp()
+  testIf('keeps payment webhooks idempotent', async () => {
+    const { app, codeFor } = await createTestApp()
     const token = await registeredVerifiedToken(app, codeFor, 'pay@example.com')
     const invoice = await json<InvoiceResponse>(
       app.handle(request('POST', '/payments/create', { planId: 'plan_starter', idempotencyKey: 'same-key' }, token))
@@ -92,11 +95,11 @@ describe('backend API e2e', () => {
 
     expect(first).toBe('OK')
     expect(duplicate).toBe('OK')
-    expect(store.paymentEvents).toHaveLength(1)
-    expect(store.subscriptions.filter((subscription) => subscription.userId !== store.users[0]?.id)).toHaveLength(1)
+    expect(await scalar('select count(*) from payment_events')).toBe(1)
+    expect(await scalar("select count(*) from subscriptions s join users u on u.id = s.user_id where u.email = 'pay@example.com'")).toBe(1)
   })
 
-  test('links Telegram account to an existing web account', async () => {
+  testIf('links Telegram account to an existing web account', async () => {
     const { app, codeFor } = await createTestApp()
     const token = await registeredVerifiedToken(app, codeFor, 'telegram@example.com')
     const linkToken = await json<{ token: string }>(app.handle(request('POST', '/telegram/link-token', undefined, token)))
@@ -120,7 +123,7 @@ describe('backend API e2e', () => {
     expect(profile.telegramUserId).toBe('12345')
   })
 
-  test('requires explicit choice when adding a fifth device and then replaces selected device', async () => {
+  testIf('requires explicit choice when adding a fifth device and then replaces selected device', async () => {
     const { app, codeFor } = await createTestApp()
     const token = await paidUserToken(app, codeFor, 'devices@example.com')
     const created: DeviceResponse[] = []
@@ -148,7 +151,7 @@ describe('backend API e2e', () => {
     expect(devices.some((device) => device.label === 'Phone')).toBe(false)
   })
 
-  test('revokes device credentials when a user deletes a device', async () => {
+  testIf('revokes device credentials when a user deletes a device', async () => {
     const { app, codeFor } = await createTestApp()
     const token = await paidUserToken(app, codeFor, 'delete-device@example.com')
     const device = await json<DeviceResponse>(app.handle(request('POST', '/me/devices', { label: 'Old phone' }, token)))
@@ -163,13 +166,9 @@ describe('backend API e2e', () => {
     expect(afterDelete).toBe('')
   })
 
-  test('falls back to an external manual provider when Marzban is unavailable', async () => {
-    const { app, store, codeFor } = await createTestApp()
-    store.nodes
-      .filter((node) => node.provider === 'marzban')
-      .forEach((node) => {
-        node.enabled = false
-      })
+  testIf('falls back to an external manual provider when Marzban is unavailable', async () => {
+    const { app, codeFor } = await createTestApp()
+    await exec("update vpn_nodes set enabled = false where provider = 'marzban'")
 
     const token = await paidUserToken(app, codeFor, 'fallback@example.com')
     const device = await json<DeviceResponse>(
@@ -182,16 +181,12 @@ describe('backend API e2e', () => {
     expect(subscription).toContain('https://fallback.vpn.local/sub/')
   })
 
-  test('blocks provisioning after user-level traffic limit is reached', async () => {
-    const { app, store, codeFor } = await createTestApp()
+  testIf('blocks provisioning after user-level traffic limit is reached', async () => {
+    const { app, codeFor } = await createTestApp()
     const token = await paidUserToken(app, codeFor, 'traffic@example.com')
-    const customer = store.users.find((user) => user.email === 'traffic@example.com')
-    const subscription = store.subscriptions.find((item) => item.userId === customer?.id)
-    expect(subscription).toBeDefined()
-
-    if (!subscription) throw new Error('subscription was not created')
-    const overLimit = addTraffic(subscription, subscription.trafficLimitBytes)
-    Object.assign(subscription, overLimit)
+    await exec(
+      "update subscriptions set traffic_used_bytes = traffic_limit_bytes where user_id = (select id from users where email = 'traffic@example.com')"
+    )
 
     const response = await app.handle(request('POST', '/me/devices', { label: 'Blocked laptop' }, token))
     const body = await json<{ code: string; message: string }>(response)
@@ -201,23 +196,15 @@ describe('backend API e2e', () => {
     expect(body.message).toContain('Buy extra traffic')
   })
 
-  test('allows grace period for one day and expires after grace', async () => {
-    const { app, store, codeFor } = await createTestApp()
+  testIf('allows grace period for one day and expires after grace', async () => {
+    const { app, codeFor } = await createTestApp()
     const token = await paidUserToken(app, codeFor, 'grace@example.com')
-    const customer = store.users.find((user) => user.email === 'grace@example.com')
-    const subscription = store.subscriptions.find((item) => item.userId === customer?.id)
-    expect(subscription).toBeDefined()
 
-    if (!subscription) throw new Error('subscription was not created')
-    subscription.endsAt = new Date(Date.now() - 12 * 60 * 60 * 1000)
-    subscription.graceEndsAt = new Date(Date.now() + 12 * 60 * 60 * 1000)
-
+    await updateSubscriptionDates('grace@example.com', new Date(Date.now() - 12 * 60 * 60 * 1000), new Date(Date.now() + 12 * 60 * 60 * 1000))
     const graceDevice = await app.handle(request('POST', '/me/devices', { label: 'Grace device' }, token))
     expect(graceDevice.status).toBe(200)
 
-    subscription.endsAt = addDays(new Date(), -2)
-    subscription.graceEndsAt = addDays(new Date(), -1)
-
+    await updateSubscriptionDates('grace@example.com', addDays(new Date(), -2), addDays(new Date(), -1))
     const expiredDevice = await app.handle(request('POST', '/me/devices', { label: 'Expired device' }, token))
     expect(expiredDevice.status).toBe(403)
   })
@@ -247,7 +234,9 @@ async function text(responseOrPromise: Response | Promise<Response>): Promise<st
   return response.text()
 }
 
-async function createTestApp(): Promise<Awaited<ReturnType<typeof createApp>> & { codeFor: (email: string) => string }> {
+async function createTestApp(): Promise<Awaited<ReturnType<AppModule['createApp']>> & { codeFor: (email: string) => string }> {
+  await resetTestDatabase()
+  const { createApp } = await loadAppModule()
   const codes = new Map<string, string>()
   const emailSender: EmailSender = {
     async sendVerificationEmail(input: VerificationEmailInput): Promise<void> {
@@ -265,11 +254,7 @@ async function createTestApp(): Promise<Awaited<ReturnType<typeof createApp>> & 
   }
 }
 
-async function registeredVerifiedToken(
-  app: Awaited<ReturnType<typeof createApp>>['app'],
-  codeFor: (email: string) => string,
-  email: string
-): Promise<string> {
+async function registeredVerifiedToken(app: App, codeFor: (email: string) => string, email: string): Promise<string> {
   const registered = await json<RegisterResponse>(
     app.handle(request('POST', '/auth/register', { email, name: 'User', password: 'password123' }))
   )
@@ -278,11 +263,7 @@ async function registeredVerifiedToken(
   return loggedIn.token
 }
 
-async function paidUserToken(
-  app: Awaited<ReturnType<typeof createApp>>['app'],
-  codeFor: (email: string) => string,
-  email: string
-): Promise<string> {
+async function paidUserToken(app: App, codeFor: (email: string) => string, email: string): Promise<string> {
   const token = await registeredVerifiedToken(app, codeFor, email)
   const invoice = await json<InvoiceResponse>(
     app.handle(request('POST', '/payments/create', { planId: 'plan_starter', idempotencyKey: `payment-${email}` }, token))
@@ -298,4 +279,73 @@ function tBankPaidWebhook(invoice: InvoiceResponse) {
     Success: true,
     Amount: invoice.amountRub * 100
   }
+}
+
+async function loadAppModule(): Promise<AppModule> {
+  const connectionString = testDatabaseUrl()
+  process.env.NODE_ENV = 'test'
+  process.env.DATABASE_URL = connectionString
+  appModule ??= await import('../src/app')
+  return appModule
+}
+
+async function resetTestDatabase(): Promise<void> {
+  testDatabaseUrl()
+  await withPool(async (pool) => {
+    await pool.query('drop schema public cascade')
+    await pool.query('create schema public')
+    await pool.query(`
+      create table schema_migrations (
+        id text primary key,
+        applied_at timestamptz not null default now()
+      )
+    `)
+
+    const migrationDir = fileURLToPath(new URL('../drizzle', import.meta.url))
+    const migrationFiles: string[] = []
+    for await (const file of new Bun.Glob('*.sql').scan({ cwd: migrationDir })) {
+      migrationFiles.push(file)
+    }
+
+    for (const file of migrationFiles.sort()) {
+      const migrationId = file.replace(/\.sql$/, '')
+      const sql = await Bun.file(new URL(`../drizzle/${file}`, import.meta.url)).text()
+      await pool.query(sql)
+      await pool.query('insert into schema_migrations (id) values ($1)', [migrationId])
+    }
+  })
+}
+
+async function exec(sql: string, values: unknown[] = []): Promise<void> {
+  await withPool(async (pool) => {
+    await pool.query(sql, values)
+  })
+}
+
+async function scalar(sql: string, values: unknown[] = []): Promise<number> {
+  return withPool(async (pool) => {
+    const result = await pool.query<{ count: string }>(sql, values)
+    return Number(result.rows[0]?.count ?? 0)
+  })
+}
+
+async function updateSubscriptionDates(email: string, endsAt: Date, graceEndsAt: Date): Promise<void> {
+  await exec(
+    'update subscriptions set ends_at = $1, grace_ends_at = $2 where user_id = (select id from users where email = $3)',
+    [endsAt, graceEndsAt, email]
+  )
+}
+
+async function withPool<T>(fn: (pool: Pool) => Promise<T>): Promise<T> {
+  const pool = new Pool({ connectionString: testDatabaseUrl() })
+  try {
+    return await fn(pool)
+  } finally {
+    await pool.end()
+  }
+}
+
+function testDatabaseUrl(): string {
+  if (!databaseUrl) throw new Error('TEST_DATABASE_URL is required')
+  return databaseUrl
 }

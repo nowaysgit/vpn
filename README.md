@@ -28,8 +28,10 @@ Dev compose поднимает Postgres, API, customer/admin web, bot и worker.
 Скопируй `.env.example` и обязательно замени production-секреты:
 
 ```env
-APP_STORE_DRIVER=postgres
 DATABASE_URL=postgres://...
+SEED_ADMIN_EMAIL=owner@example.com
+SEED_ADMIN_PASSWORD=<strong owner password>
+NUXT_PUBLIC_API_BASE_URL=https://api.example.com
 JWT_ACCESS_SECRET=...
 CREDENTIAL_ENCRYPTION_KEY=<64 hex chars, not all zeroes>
 TBANK_API_BASE_URL=https://securepay.tinkoff.ru
@@ -43,8 +45,8 @@ TBANK_RECEIPT_TAX=none
 TBANK_RECEIPT_PAYMENT_METHOD=full_payment
 TBANK_RECEIPT_PAYMENT_OBJECT=service
 PLATEGA_API_BASE_URL=https://api.platega.example
-PLATEGA_MERCHANT_ID=change-me
-PLATEGA_SECRET=change-me
+PLATEGA_MERCHANT_ID=...
+PLATEGA_SECRET=...
 EMAIL_PROVIDER=smtp
 EMAIL_VERIFICATION_BASE_URL=https://cabinet.example.com
 EMAIL_FROM="VPN Cabinet <no-reply@my-administrator.ru>"
@@ -56,12 +58,12 @@ EMAIL_SMTP_PASSWORD=<app password>
 EMAIL_DOMAIN=my-administrator.ru
 EMAIL_DKIM_SELECTOR=mail
 MARZBAN_BASE_URL=http://marzban:8000
-MARZBAN_USERNAME=change-me
-MARZBAN_PASSWORD=change-me
+MARZBAN_USERNAME=...
+MARZBAN_PASSWORD=...
 EXTERNAL_FALLBACK_URI_TEMPLATE=https://fallback.example/sub/{userId}/{deviceId}
 ```
 
-В `NODE_ENV=production` backend не стартует на memory-store или дефолтных секретах.
+В `NODE_ENV=production` backend не стартует без Postgres `DATABASE_URL`, seed owner credentials, реальных production-секретов и публичных HTTPS URL для T-Bank callbacks и external fallback template. `change-me`, `changeme`, `demo`, `demo-secret`, localhost, `*.localhost` и `*.local` считаются невалидными для production.
 Основная платежка — T-Bank acquiring через `/v2/Init` и webhook `/payments/webhooks/tbank`; Platega остается запасным провайдером для создания инвойса, если T-Bank недоступен и клиент не выбрал провайдера явно.
 Если на терминале T-Bank включена онлайн-касса, заполни `TBANK_RECEIPT_*`, чтобы backend передавал чек в `Init`.
 Для подтверждения почты production-контур использует Yandex 360 SMTP. На домене отправителя должны быть настроены SPF, DKIM и DMARC; в dev/test письма пишутся в `output/email-outbox.jsonl`.
@@ -75,14 +77,16 @@ bun run smoke:tbank
 bun run check:yandex360-dns
 EMAIL_SMOKE_TO="you@yandex.ru,you@mail.ru,you@gmail.com" bun run smoke:yandex360-email
 bun run check:email-delivery
+bun run check:production-config -- --env-file .env.production
 bun run check:production-readiness
 ```
 
-`smoke:tbank` создает реальный T-Bank invoice через `/v2/Init`, если заданы `TBANK_TERMINAL_KEY` и `TBANK_PASSWORD`.
+`smoke:tbank` создает реальный T-Bank invoice через `/v2/Init`, только если заданы реальные `TBANK_TERMINAL_KEY`, `TBANK_PASSWORD` и публичные HTTPS callback URL.
 `check:yandex360-dns` проверяет SPF, DKIM, DMARC и MX для `EMAIL_DOMAIN`.
 `smoke:yandex360-email` отправляет verification-письма через Yandex 360 SMTP и сохраняет marker в `output/email-smoke.json`.
 `check:email-delivery` заходит по IMAP в тестовые Yandex/Mail.ru/Gmail ящики и проверяет, что marker найден во входящих, а не в spam. Скопируй `scripts/ci/email-delivery-checks.example.json` в `email-delivery-checks.json` и задай пароли через `YANDEX_TEST_IMAP_PASSWORD`, `MAILRU_TEST_IMAP_PASSWORD`, `GMAIL_TEST_IMAP_APP_PASSWORD`.
-`check:production-readiness` запускает локальный `ci:check` и все внешние smoke/check gates в строгом режиме: без реальных T-Bank/Yandex/DNS/IMAP env команда должна падать.
+`check:production-config -- --env-file .env.production` валидирует конкретный production env-файл без печати секретов.
+`check:production-readiness` запускает локальные проверки, strict production env preflight, production compose config для backend/customer/admin и все внешние smoke/check gates в строгом режиме: без реальных T-Bank/Yandex/DNS/IMAP env команда должна падать.
 
 ## Команды
 
@@ -90,8 +94,10 @@ bun run check:production-readiness
 bun run ci:check                  # lint + typecheck + unit/API tests
 bun run ci:check:backend-dockerfile
 bun run build:e2e                 # production build customer/admin Nuxt apps
-node scripts/ci/run-local-e2e.mjs --reporter=list
+bun run test:e2e --reporter=list  # local built-web Playwright e2e without Docker
 bun run ci:e2e                    # Docker compose e2e stack for CI/Linux runners
+bun run check:production-config   # strict active-env production preflight
+bun run check:production-config -- --env-file .env.production
 bun run smoke:tbank               # real T-Bank Init smoke when TBANK_* are set
 bun run check:yandex360-dns       # SPF/DKIM/DMARC/MX DNS check for Yandex 360
 bun run smoke:yandex360-email     # SMTP delivery smoke when EMAIL_SMOKE_TO is set
@@ -99,7 +105,7 @@ bun run check:email-delivery      # IMAP inbox/spam placement check for smoke ma
 bun run check:production-readiness
 ```
 
-На этой Windows-сессии `bun run test:e2e` стабильно ломает Playwright browser launch из-за Bun script ancestry. Сам Playwright и тесты проходят через прямой Node runner: `node scripts/ci/run-local-e2e.mjs`.
+На Windows e2e runner очищает Bun script shim из `PATH`, чтобы Playwright запускал браузер из обычного Node-процесса.
 
 ## Graphify
 

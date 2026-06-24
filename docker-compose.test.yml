@@ -1,15 +1,32 @@
 name: vpn-test
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vpn-test-postgres
+    environment:
+      POSTGRES_DB: vpn_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vpn_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   api:
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
-    command: ["bun", "src/index.ts"]
+    command: ["sh", "-c", "bun run migrate && bun src/index.ts"]
     container_name: vpn-test-api
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       NODE_ENV: test
       PORT: 3001
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vpn_test
       JWT_ACCESS_SECRET: test-secret
       CREDENTIAL_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
       EMAIL_PROVIDER: outbox
@@ -36,7 +53,7 @@ services:
       NODE_ENV: test
       HOST: 0.0.0.0
       PORT: 3000
-      API_BASE_URL: http://127.0.0.1:3001
+      NUXT_PUBLIC_API_BASE_URL: http://127.0.0.1:3001
     ports:
       - "3000:3000"
 
@@ -52,6 +69,6 @@ services:
       NODE_ENV: test
       HOST: 0.0.0.0
       PORT: 3002
-      API_BASE_URL: http://127.0.0.1:3001
+      NUXT_PUBLIC_API_BASE_URL: http://127.0.0.1:3001
     ports:
       - "3002:3002"

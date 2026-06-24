@@ -437,7 +437,7 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-{slug}-dev}-frontend
     environment:
       APP_DOMAIN: ${APP_DOMAIN:-dev.{slug}.localhost}
-      API_BASE_URL: ${API_BASE_URL:-http://api:3001}
+      NUXT_PUBLIC_API_BASE_URL: ${NUXT_PUBLIC_API_BASE_URL:-http://api:3001}
 
 volumes:
   postgres_data:
@@ -470,7 +470,7 @@ Server-agent автоматически подхватывает `.env` из к�
 # .env (в .gitignore)
 API_DOMAIN=dev.api.{slug}.yourdomain.com
 APP_DOMAIN=dev.{slug}.yourdomain.com
-API_BASE_URL=https://dev.api.{slug}.yourdomain.com
+NUXT_PUBLIC_API_BASE_URL=https://dev.api.{slug}.yourdomain.com
 POSTGRES_PASSWORD=dev-password-change-me
 ```
 
